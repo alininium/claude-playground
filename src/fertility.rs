@@ -7,9 +7,11 @@
 //!   sandy and rocky soils are poor, lake shores get a bonus. Steep ground
 //!   loses soil. Plus regional variation (loess, volcanic ash, ...).
 //! - **Water**: long-term rainfall, or a river or lake to irrigate from. Too
-//!   much rain leaches the soil a little.
-//! - **Warmth**: last year's growing degree-days (warmth above 5 °C), so a
-//!   cold year really does mean a poor harvest next year.
+//!   much rain leaches the soil a little. A drought (dry soil during last
+//!   year's growing season) cuts it further, unless the land is irrigated.
+//! - **Warmth**: last year's growing degree-days (warmth above 5 °C), capped
+//!   by the length of the frost-free season, so a cold year or a late frost
+//!   really does mean a poor harvest next year.
 //!
 //! - **Vegetation**: the biome's typical soil: grassland chernozems are the
 //!   best, leached rainforest and boreal podzol soils poorer, wetlands need
@@ -131,8 +133,13 @@ fn fertility(map: &Map, climate: &Climate, biome: Biome, i: usize, soil: u16) ->
     // Moisture scale: 1000 ≈ 2000 mm of rain a year.
     let rain = climate.normal(i).annual_precipitation_mm() / 2;
     let effective = if fresh_water { rain.max(650) } else { rain };
-    let water = interpolate(&WATER, effective);
-    let warmth = interpolate(&WARMTH, i64::from(climate.growing_degree_days(i)));
+    let mut water = interpolate(&WATER, effective);
+    if !fresh_water {
+        let wetness = i64::from(climate.growing_season_wetness(i));
+        water = water * interpolate(&DROUGHT, wetness) / 1000;
+    }
+    let warmth = interpolate(&WARMTH, i64::from(climate.growing_degree_days(i)))
+        .min(interpolate(&SEASON, i64::from(climate.frost_free_days(i))));
     let mut f = i64::from(soil) * water / 1000 * warmth / 1000 * vegetation(biome) / 1000;
     if frozen.permafrost {
         f = f * 300 / 1000;
@@ -150,6 +157,12 @@ const WATER: [(i64, i64); 7] = [
     (900, 1000),
     (1000, 900),
 ];
+
+/// Drought factor by growing-season soil wetness (per mille of capacity).
+const DROUGHT: [(i64, i64); 3] = [(0, 250), (250, 600), (500, 1000)];
+
+/// Season factor by frost-free days.
+const SEASON: [(i64, i64); 4] = [(0, 0), (60, 150), (100, 500), (150, 1000)];
 
 /// Warmth factor by yearly growing degree-days (°C·days above 5 °C).
 const WARMTH: [(i64, i64); 7] = [

@@ -14,7 +14,7 @@
 //! | Af | coldest ≥ 18, driest month ≥ 60 | tropical rainforest |
 //! | Am | coldest ≥ 18, driest ≥ 100 − P/25 | tropical seasonal forest |
 //! | Aw | coldest ≥ 18, otherwise | savanna |
-//! | Cs | coldest > 0, ≥ 70% of rain in the cold half | Mediterranean shrubland |
+//! | Cs | coldest > 0, summer month < 40 mm and < ⅓ of the winter month | Mediterranean shrubland |
 //! | C | coldest > 0 | temperate forest; rainforest if P ≥ 2000, grassland if P < 500 |
 //! | D | coldest ≤ 0 | boreal forest if warmest < 18; else temperate forest, grassland if P < 500 |
 //!
@@ -103,6 +103,9 @@ pub struct ClimateSummary {
     pub driest_month: i64,
     /// Share of precipitation in the local warm half of the year, per mille.
     pub warm_half_share: i64,
+    /// Mean monthly precipitation in the local summer and winter, mm.
+    pub summer_month: i64,
+    pub winter_month: i64,
 }
 
 impl ClimateSummary {
@@ -110,6 +113,7 @@ impl ClimateSummary {
         let normal: &ClimateNormal = climate.normal(index);
         let (warmest_month, coldest_month) = climate.warmest_and_coldest_month(index);
         let northern = map.latitude_tenths(map.position_of(index as u32).y) >= 0;
+        let (summer_month, winter_month) = normal.summer_and_winter_month_mm(northern);
         Self {
             mean: normal.mean_tenths(),
             warmest_month,
@@ -117,6 +121,8 @@ impl ClimateSummary {
             precipitation: normal.annual_precipitation_mm(),
             driest_month: normal.driest_month_mm(),
             warm_half_share: normal.warm_half_share(northern),
+            summer_month,
+            winter_month,
         }
     }
 }
@@ -165,7 +171,7 @@ pub fn classify(c: &ClimateSummary, mountains: bool) -> Biome {
         };
     }
     if c.coldest_month > 0 {
-        if c.warm_half_share <= 300 {
+        if c.summer_month < 40 && c.summer_month * 3 < c.winter_month {
             Biome::MediterraneanShrubland
         } else if c.precipitation >= 2000 {
             Biome::TemperateRainforest
@@ -257,13 +263,18 @@ mod tests {
     use super::*;
 
     fn climate(mean: i64, swing: i64, precipitation: i64, warm_share: i64) -> ClimateSummary {
+        // Seasonal months from the warm-half share: summer gets 2·share of
+        // the average month, winter 2·(1 − share).
+        let month = precipitation / 12;
         ClimateSummary {
             mean,
             warmest_month: mean + swing,
             coldest_month: mean - swing,
             precipitation,
-            driest_month: precipitation / 12 * (1000 - warm_share.abs_diff(500) as i64) / 1000,
+            driest_month: month * (1000 - warm_share.abs_diff(500) as i64) / 1000,
             warm_half_share: warm_share,
+            summer_month: month * 2 * warm_share / 1000,
+            winter_month: month * 2 * (1000 - warm_share) / 1000,
         }
     }
 
@@ -293,7 +304,7 @@ mod tests {
         );
         // Rome-like: mild, dry summers.
         assert_eq!(
-            classify(&climate(160, 80, 800, 250), false),
+            classify(&climate(160, 80, 800, 200), false),
             Biome::MediterraneanShrubland
         );
         // Paris-like.

@@ -56,6 +56,9 @@ pub struct Tile {
     pub water: Water,
     /// Yearly rainfall, 0 (bone dry) to 1000 (rainforest).
     pub moisture: u16,
+    /// Tiles of land the prevailing wind crosses before reaching this tile
+    /// (0 on a windward coast; capped at a fifth of the map width).
+    pub upwind_land: u16,
     /// Rain collected from this tile and everything upstream of it.
     pub flow: u32,
     /// Tile index this tile drains into; `None` for oceans and map-edge outlets.
@@ -146,6 +149,7 @@ impl Map {
                     soil: Soil::None,
                     water: Water::Dry,
                     moisture: 0,
+                    upwind_land: 0,
                     flow: 0,
                     downstream: None,
                 })

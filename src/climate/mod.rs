@@ -16,11 +16,21 @@
 //! - **Continentality**: how far maritime air has to travel to reach the
 //!   tile. Mountain ranges count as barriers, so the lee of a range gets a
 //!   harsher, more continental climate.
-//! - Sensitivity to the planet-wide [`oscillation`]s.
+//! - Sensitivity to the planet-wide [`oscillation`]s, for temperature and
+//!   for rain.
+//! - **Precipitation**: a long-term amount from the map's rainfall pattern
+//!   (prevailing winds, rain shadows) and a seasonal cycle: monsoon summer
+//!   rain in the outer tropics, winter rain on subtropical west coasts
+//!   (Mediterranean climates), convective summer rain inside continents.
+//! - How variable its **weather** is.
 //!
 //! The temperature at a given turn is then a function of that profile, the
-//! date, the time of day, the global oscillation state, and the tile's ice
-//! and snow (which reflect sunlight; see [`cryosphere`]).
+//! date, the time of day (with a daily cycle that shrinks in polar night and
+//! midnight sun, see [`daylight`]), the global oscillation state, the day's
+//! [`weather`], volcanic aerosols, and the tile's ice and snow (which reflect
+//! sunlight; see [`cryosphere`]). Precipitation follows the season, the
+//! oscillation and the weather; it feeds snow and the [`soil`] water balance,
+//! whose runoff makes the rivers rise and flood.
 //!
 //! At world creation the climate is spun up for a few years so seasonal
 //! snow, sea ice, frozen ground and the polar caps are already in place at
@@ -28,9 +38,12 @@
 //! thickness a few centuries of that surplus would have built.
 
 pub mod cryosphere;
+pub mod daylight;
 pub mod oscillation;
+pub mod soil;
 pub mod stats;
 pub mod trig;
+pub mod weather;
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -44,7 +57,9 @@ use crate::rng::SimRng;
 use crate::time::{Date, TURNS_PER_DAY, TimeOfDay, Turn};
 use cryosphere::Cryosphere;
 use oscillation::{Drift, Oscillation, OscillationConfig};
+use soil::SoilWater;
 use stats::{ClimateNormal, YearStats};
+use weather::Weather;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClimateConfig {
@@ -93,6 +108,16 @@ pub struct TileClimate {
     pub drift_weight: i16,
     /// 0 (maritime) to 1000 (fully continental).
     pub continentality: u16,
+    /// Long-term precipitation, mm per year.
+    pub base_precipitation: u16,
+    /// Seasonal precipitation cycle, per mille of the mean: positive peaks
+    /// in northern summer, negative in northern winter (so a southern
+    /// monsoon is negative).
+    pub rain_seasonality: i16,
+    /// Change in precipitation per °C of oscillation index, per mille.
+    pub rain_oscillation: i16,
+    /// Typical day-to-day weather temperature anomaly, tenths °C.
+    pub weather_amplitude: i16,
 }
 
 #[derive(Resource, Debug, Clone)]
@@ -110,6 +135,18 @@ pub struct Climate {
     /// Current precipitation rate of every tile, mm per year.
     precipitation: Vec<u16>,
     stats: YearStats,
+    weather: Weather,
+    soil: SoilWater,
+    /// Today's day length per row, minutes.
+    daylight: Vec<u16>,
+    /// The same, per tile (for the soil water balance).
+    tile_daylight: Vec<u16>,
+    /// Latitude of each row, tenths of a degree.
+    latitudes: Vec<i64>,
+    /// Volcanic aerosol cooling, tenths °C: northern, southern hemisphere.
+    volcanic_cooling: [i16; 2],
+    /// Absolute day number (days since turn 0).
+    day: u64,
 }
 
 impl Climate {
@@ -118,6 +155,7 @@ impl Climate {
         let drift = Drift::new(SimRng::from_seed(rng.next_u64()));
         let teleconnections = Noise::new(rng.next_u64());
         let currents = Noise::new(rng.next_u64());
+        let weather_seed = rng.next_u64();
         // Longitude of the oscillation's warm pool (its "eastern Pacific").
         let center_x = rng.below(u64::from(map.width())) as i64;
 
@@ -147,16 +185,64 @@ impl Climate {
             oscillation,
             drift,
             cryosphere: Cryosphere::new(n),
-            precipitation: map
-                .tiles()
-                .iter()
-                .map(|t| annual_precipitation_mm(t.moisture))
-                .collect(),
+            precipitation: vec![0; n],
             stats: YearStats::new(n),
+            weather: Weather::new(weather_seed, n),
+            soil: SoilWater::new(map),
+            daylight: vec![720; map.height() as usize],
+            tile_daylight: vec![720; n],
+            latitudes: (0..map.height()).map(|y| map.latitude_tenths(y)).collect(),
+            volcanic_cooling: [0, 0],
+            day: 0,
         };
         climate.spin_up(map, config);
+        climate.start_day(0, false);
         climate.update_temperatures(0);
         climate
+    }
+
+    /// Sets up a day: day length, weather (unless `neutral`) and
+    /// precipitation rates.
+    fn start_day(&mut self, day: u64, neutral: bool) {
+        let day_of_year = (day % u64::from(self.days_per_year)) as u32;
+        for (d, &lat) in self.daylight.iter_mut().zip(&self.latitudes) {
+            *d = daylight::day_length_minutes(lat, day_of_year, self.days_per_year) as u16;
+        }
+        for (i, d) in self.tile_daylight.iter_mut().enumerate() {
+            *d = self.daylight[i / self.width];
+        }
+        if !neutral {
+            let profiles = &self.profiles;
+            self.weather
+                .update(day, self.width as u32, |i| profiles[i].weather_amplitude);
+        }
+        // Seasonal rain peaks about a month after the northern summer solstice.
+        let year = i64::from(self.days_per_year);
+        let phase = (i64::from(day_of_year) - (year / 4 + 30)) * trig::FULL_TURN / year;
+        let season = trig::cos(phase);
+        let osc = if neutral {
+            0
+        } else {
+            self.oscillation.state().0
+        };
+        for (i, (rate, p)) in self
+            .precipitation
+            .iter_mut()
+            .zip(&self.profiles)
+            .enumerate()
+        {
+            let seasonal = 1000 + i64::from(p.rain_seasonality) * season / ONE;
+            let oscillation = (1000 + osc * i64::from(p.rain_oscillation) / ONE).clamp(200, 3000);
+            let weather = if neutral {
+                1000
+            } else {
+                i64::from(self.weather.precipitation_factor(i))
+            };
+            let r = i64::from(p.base_precipitation) * seasonal / 1000 * oscillation / 1000
+                * weather
+                / 1000;
+            *rate = r.clamp(0, i64::from(u16::MAX)) as u16;
+        }
     }
 
     /// Runs whole years of neutral climate (no oscillation, no drift) at
@@ -169,27 +255,30 @@ impl Climate {
             if year == 1 {
                 before = self.ice_mass();
             }
+            let mut night = vec![0i16; self.temperature.len()];
             for day in 0..self.days_per_year {
+                self.start_day(u64::from(day), true);
                 for (i, t) in self.temperature.iter_mut().enumerate() {
-                    let mean =
-                        daily_mean_temperature(&self.profiles[i], day, self.days_per_year, 0, 0)
-                            - self.cryosphere.albedo_cooling(i);
-                    *t = mean.clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+                    let p = &self.profiles[i];
+                    let mean = daily_mean_temperature(p, day, self.days_per_year, 0, 0)
+                        - self.cryosphere.albedo_cooling(i);
+                    *t = clamp16(mean);
+                    let scale = diurnal_scale(self.tile_daylight[i]);
+                    night[i] =
+                        clamp16(mean - i64::from(p.diurnal_range) * scale / 1000 * 400 / 1000);
                 }
-                self.cryosphere.step(
-                    map,
-                    &self.temperature,
-                    &self.precipitation,
-                    TURNS_PER_DAY as u32,
-                    self.days_per_year,
-                );
+                self.step_water(map, TURNS_PER_DAY as u32);
+                self.soil.route(map);
                 let season = (day * 4 / self.days_per_year) as usize;
+                let soil = &self.soil;
                 self.stats.accumulate(
                     &self.temperature,
                     &self.precipitation,
+                    |i| soil.wetness(i),
                     TURNS_PER_DAY as u32,
                     season,
                 );
+                self.stats.record_day(&night, |i| soil.is_flooding(i));
                 // No flow before seeding: the surplus must be snowfall alone.
                 if year >= 2 {
                     self.cryosphere.flow_glaciers(map);
@@ -218,9 +307,67 @@ impl Climate {
             .collect()
     }
 
+    /// Snow, ice and soil water for `quarters` quarter-days.
+    fn step_water(&mut self, map: &Map, quarters: u32) {
+        self.cryosphere.step(
+            map,
+            &self.temperature,
+            &self.precipitation,
+            quarters,
+            self.days_per_year,
+        );
+        self.soil.step(
+            map,
+            &self.temperature,
+            &self.precipitation,
+            self.cryosphere.melt(),
+            &self.tile_daylight,
+            quarters,
+            self.days_per_year,
+        );
+    }
+
     fn end_year(&mut self) {
         self.cryosphere.end_year();
         self.stats.end_year(self.days_per_year);
+    }
+
+    pub fn soil(&self) -> &SoilWater {
+        &self.soil
+    }
+
+    pub fn weather(&self) -> &Weather {
+        &self.weather
+    }
+
+    /// Today's day length at a row, minutes.
+    pub fn day_length_minutes(&self, y: u32) -> u16 {
+        self.daylight[y as usize]
+    }
+
+    /// Mean soil wetness during last year's growing season, per mille.
+    pub fn growing_season_wetness(&self, index: usize) -> u16 {
+        self.stats.wetness_last_year[index]
+    }
+
+    /// Frost-free nights in a row last year (the growing season length).
+    pub fn frost_free_days(&self, index: usize) -> u16 {
+        self.stats.frost_free_last_year[index]
+    }
+
+    /// Days the tile's river was in flood last year.
+    pub fn flood_days(&self, index: usize) -> u16 {
+        self.stats.flood_days_last_year[index]
+    }
+
+    /// Volcanic aerosol cooling (tenths °C) for the northern and southern
+    /// hemispheres; set by the volcano system.
+    pub fn set_volcanic_cooling(&mut self, northern: i16, southern: i16) {
+        self.volcanic_cooling = [northern, southern];
+    }
+
+    pub fn volcanic_cooling(&self) -> [i16; 2] {
+        self.volcanic_cooling
     }
 
     pub fn cryosphere(&self) -> &Cryosphere {
@@ -299,10 +446,24 @@ impl Climate {
         let date = Date::from_turn(turn, self.days_per_year);
         let osc = self.oscillation.state().0;
         let drift = self.drift.anomaly();
+        // The seasonal cosine depends on the tile only through its lag:
+        // compute it once per distinct lag (same formula as `temperature_at`).
+        let now = quarter_day(&date);
+        let mut season_by_lag = [None; 128];
+        let share = diurnal_share(date.time_of_day);
         for (i, (t, profile)) in self.temperature.iter_mut().zip(&self.profiles).enumerate() {
-            let temp = temperature_at(profile, &date, self.days_per_year, osc, drift)
-                - self.cryosphere.albedo_cooling(i);
-            *t = temp.clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+            let row = i / self.width;
+            let scale = diurnal_scale(self.daylight[row]);
+            let volcanic = self.volcanic_cooling[usize::from(self.latitudes[row] < 0)];
+            let lag = usize::from(profile.seasonal_lag_days).min(127);
+            let season = *season_by_lag[lag]
+                .get_or_insert_with(|| seasonal_cosine(profile, now, self.days_per_year));
+            let temp = mean_with_season(profile, season, osc, drift)
+                + i64::from(profile.diurnal_range) * scale / 1000 * share / 1000
+                - self.cryosphere.albedo_cooling(i)
+                + i64::from(self.weather.temperature(i))
+                - i64::from(volcanic);
+            *t = clamp16(temp);
         }
     }
 
@@ -330,20 +491,41 @@ impl Climate {
             write(u64::from(p));
         }
         self.stats.digest(write);
+        self.weather.digest(write);
+        self.soil.digest(write);
+        write(self.day);
+        write(
+            u64::from(self.volcanic_cooling[0] as u16) << 16
+                | u64::from(self.volcanic_cooling[1] as u16),
+        );
     }
 }
 
-/// Long-term mean precipitation for a moisture index (0-1000), mm per year.
-/// Quadratic, like Earth's skewed rainfall distribution: moisture 1000 gives
-/// 2000 mm (rainforest), 500 gives 500 mm, 200 gives 80 mm (desert).
+/// Long-term mean precipitation for a moisture index (0-1000), mm per year:
+/// `m + m²/1000`, skewed like Earth's rainfall distribution. Moisture 1000
+/// gives 2000 mm (rainforest), 500 gives 750 mm, 150 gives 170 mm (desert).
 pub fn annual_precipitation_mm(moisture: u16) -> u16 {
     let m = u32::from(moisture.min(1000));
-    (m * m * 2 / 1000) as u16
+    (m + m * m / 1000) as u16
 }
 
-/// Runs every turn: advances the global oscillations at the start of each
-/// day (and closes the books at the start of each year), recomputes every
-/// tile's temperature, then lets ice and snow respond to it.
+fn clamp16(v: i64) -> i16 {
+    v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16
+}
+
+/// How much of a tile's normal day/night range applies at a day length,
+/// per mille: full at 12 hours, shrinking toward polar night and midnight
+/// sun (when the sun neither rises nor sets, there is no daily cycle).
+pub fn diurnal_scale(daylight_minutes: u16) -> i64 {
+    let l = i64::from(daylight_minutes.min(1440));
+    300 + 700 * 4 * l * (1440 - l) / (1440 * 1440)
+}
+
+/// Runs every turn: at the start of each day advances the global
+/// oscillations, closes the books at the start of each year, and sets up
+/// the day's daylight, weather and precipitation; recomputes every tile's
+/// temperature; then lets ice, snow and soil water respond. Rivers are
+/// routed and frost and floods recorded once a day, at night.
 pub fn update_climate(
     turn: Res<Turn>,
     config: Res<SimConfig>,
@@ -356,24 +538,28 @@ pub fn update_climate(
         if date.day_of_year == 0 {
             climate.end_year();
         }
+        climate.day = turn.0 / TURNS_PER_DAY;
+        let day = climate.day;
+        climate.start_day(day, false);
     }
     climate.update_temperatures(turn.0);
     let climate = &mut *climate;
-    climate.cryosphere.step(
-        &map,
-        &climate.temperature,
-        &climate.precipitation,
-        1,
-        climate.days_per_year,
-    );
+    climate.step_water(&map, 1);
+    let soil = &climate.soil;
     climate.stats.accumulate(
         &climate.temperature,
         &climate.precipitation,
+        |i| soil.wetness(i),
         1,
         date.season as usize,
     );
     if date.time_of_day == TimeOfDay::Night {
         climate.cryosphere.flow_glaciers(&map);
+        climate.soil.route(&map);
+        let soil = &climate.soil;
+        climate
+            .stats
+            .record_day(&climate.temperature, |i| soil.is_flooding(i));
     }
 }
 
@@ -385,26 +571,42 @@ pub fn is_new_year(turn: u64, days_per_year: u32) -> bool {
 }
 
 /// Temperature in tenths of a degree for a tile profile at a point in time,
-/// before ice/snow albedo. `oscillation_index` and `drift` are in °C · ONE.
+/// before ice/snow albedo, weather and volcanoes. `oscillation_index` and
+/// `drift` are in °C · ONE; `diurnal_scale` (per mille) scales the daily
+/// cycle (see [`diurnal_scale`]).
 pub fn temperature_at(
     profile: &TileClimate,
     date: &Date,
     days_per_year: u32,
     oscillation_index: i64,
     drift: i64,
+    diurnal_scale: i64,
 ) -> i64 {
-    let now = i64::from(date.day_of_year) * 4 + date.time_of_day as i64;
-    let mean = mean_at(profile, now, days_per_year, oscillation_index, drift);
+    let mean = mean_at(
+        profile,
+        quarter_day(date),
+        days_per_year,
+        oscillation_index,
+        drift,
+    );
+    let share = diurnal_share(date.time_of_day);
+    let diurnal = i64::from(profile.diurnal_range) * diurnal_scale / 1000 * share / 1000;
+    mean + diurnal
+}
 
-    // Daily cycle, per mille of the diurnal range; averages to zero.
-    let diurnal_share = match date.time_of_day {
+/// Quarter-days since the start of the year.
+fn quarter_day(date: &Date) -> i64 {
+    i64::from(date.day_of_year) * 4 + date.time_of_day as i64
+}
+
+/// Daily cycle, per mille of the diurnal range; averages to zero.
+fn diurnal_share(time: TimeOfDay) -> i64 {
+    match time {
         TimeOfDay::Morning => -150,
         TimeOfDay::Day => 450,
         TimeOfDay::Evening => 100,
         TimeOfDay::Night => -400,
-    };
-    let diurnal = i64::from(profile.diurnal_range) * diurnal_share / 1000;
-    mean + diurnal
+    }
 }
 
 /// Average temperature over a whole day (the daily cycle averages out).
@@ -427,13 +629,20 @@ fn mean_at(
     oscillation_index: i64,
     drift: i64,
 ) -> i64 {
-    // Seasons: a cosine peaking `lag` days after the northern summer solstice
-    // (a quarter year after turn 0), at quarter-day resolution.
+    let season = seasonal_cosine(profile, now, days_per_year);
+    mean_with_season(profile, season, oscillation_index, drift)
+}
+
+/// Seasons: a cosine (fixed point) peaking `lag` days after the northern
+/// summer solstice (a quarter year after turn 0), at quarter-day resolution.
+fn seasonal_cosine(profile: &TileClimate, now: i64, days_per_year: u32) -> i64 {
     let quarter_days_per_year = i64::from(days_per_year) * 4;
     let peak = (i64::from(days_per_year) / 4 + i64::from(profile.seasonal_lag_days)) * 4;
-    let phase = (now - peak) * trig::FULL_TURN / quarter_days_per_year;
-    let seasonal = i64::from(profile.seasonal_amplitude) * trig::cos(phase) / ONE;
+    trig::cos((now - peak) * trig::FULL_TURN / quarter_days_per_year)
+}
 
+fn mean_with_season(profile: &TileClimate, season: i64, oscillation_index: i64, drift: i64) -> i64 {
+    let seasonal = i64::from(profile.seasonal_amplitude) * season / ONE;
     let oscillation = oscillation_index * i64::from(profile.oscillation_weight) * 10 / (1000 * ONE);
     let drift = drift * i64::from(profile.drift_weight) * 10 / (1000 * ONE);
 
@@ -534,6 +743,26 @@ fn profile(
         _ => tropics * (200 + 300 * east_west / 1000) / 1000 + remote,
     };
 
+    // Seasonal rain, in the local hemisphere's sense (+ = summer peak):
+    // monsoon in the outer tropics, winter rain where the westerlies come in
+    // straight off the sea at 30-45° (Mediterranean climates), convective
+    // summer rain inside continents.
+    let monsoon = interpolate(&MONSOON, abs_lat);
+    let windward = 1000 - (i64::from(tile.upwind_land) * 1000 / 8).min(1000);
+    let mediterranean = -800 * windward / 1000 * interpolate(&MEDITERRANEAN, abs_lat) / 1000;
+    let convective = 450 * cont / 1000 * interpolate(&CONVECTIVE, abs_lat) / 1000;
+    let mut rain_seasonality = (monsoon + mediterranean + convective).clamp(-900, 900);
+    if lat < 0 {
+        rain_seasonality = -rain_seasonality;
+    }
+
+    let weather_amplitude = interpolate(&WEATHER, abs_lat)
+        * match tile.water {
+            Water::Ocean => 400,
+            _ => 600 + 400 * cont / 1000,
+        }
+        / 1000;
+
     TileClimate {
         mean: mean as i16,
         seasonal_amplitude: swing as i16,
@@ -542,6 +771,10 @@ fn profile(
         oscillation_weight: oscillation_weight as i16,
         drift_weight: (1000 + abs_lat * 1000 / 900) as i16,
         continentality,
+        base_precipitation: annual_precipitation_mm(tile.moisture),
+        rain_seasonality: rain_seasonality as i16,
+        rain_oscillation: (oscillation_weight * 4 / 10) as i16,
+        weather_amplitude: weather_amplitude as i16,
     }
 }
 
@@ -582,6 +815,20 @@ const CURRENT_STRENGTH: [(i64, i64); 6] = [
     (800, 100),
     (900, 60),
 ];
+
+/// Strength of the monsoon (summer-peaked rain), per mille, by |latitude|:
+/// the tropical rain belt follows the sun, so the outer tropics get a wet
+/// summer and a dry winter; at the equator it passes twice a year.
+const MONSOON: [(i64, i64); 4] = [(0, 0), (100, 500), (220, 650), (300, 0)];
+
+/// Where winter (Mediterranean) rain is possible, per mille, by |latitude|.
+const MEDITERRANEAN: [(i64, i64); 4] = [(250, 0), (330, 1000), (420, 1000), (480, 0)];
+
+/// Where continental interiors get summer convective rain, per mille.
+const CONVECTIVE: [(i64, i64); 5] = [(300, 0), (400, 1000), (650, 1000), (800, 500), (900, 300)];
+
+/// Typical weather temperature anomaly by |latitude|, tenths °C.
+const WEATHER: [(i64, i64); 5] = [(0, 10), (200, 15), (350, 35), (500, 50), (900, 50)];
 
 /// Typical half summer-winter difference over land, tenths °C.
 const ZONAL_SWING: [(i64, i64); 7] = [
@@ -657,11 +904,15 @@ mod tests {
             oscillation_weight: 500,
             drift_weight: 1000,
             continentality: 800,
+            base_precipitation: 800,
+            rain_seasonality: 0,
+            rain_oscillation: 0,
+            weather_amplitude: 0,
         }
     }
 
     fn temp(profile: &TileClimate, turn: u64) -> i64 {
-        temperature_at(profile, &Date::from_turn(turn, 364), 364, 0, 0)
+        temperature_at(profile, &Date::from_turn(turn, 364), 364, 0, 0, 1000)
     }
 
     fn mid_season(season: Season) -> u64 {
@@ -690,9 +941,9 @@ mod tests {
     fn oscillation_and_drift_shift_temperature() {
         let p = land(1);
         let date = Date::from_turn(500, 364);
-        let base = temperature_at(&p, &date, 364, 0, 0);
-        assert_eq!(temperature_at(&p, &date, 364, 2 * ONE, 0), base + 10);
-        assert_eq!(temperature_at(&p, &date, 364, 0, ONE), base + 10);
+        let base = temperature_at(&p, &date, 364, 0, 0, 1000);
+        assert_eq!(temperature_at(&p, &date, 364, 2 * ONE, 0, 1000), base + 10);
+        assert_eq!(temperature_at(&p, &date, 364, 0, ONE, 1000), base + 10);
     }
 
     #[test]

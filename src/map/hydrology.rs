@@ -2,8 +2,12 @@
 //!
 //! 1. Large connected areas below sea level are ocean.
 //! 2. Rainfall follows Earth-like latitude bands (wet tropics, dry
-//!    subtropics, wet temperate belt, dry poles), drops off with distance from
-//!    the ocean, and gets some noise.
+//!    subtropics, wet temperate belt, dry poles). Moist air comes in from the
+//!    sea with the prevailing winds (easterly trade winds below 30°,
+//!    westerlies to 60°, polar easterlies beyond), so rainfall drops with the
+//!    distance the wind has travelled over land. Mountains upwind cast a rain
+//!    shadow, and slopes facing the wind get extra (orographic) rain. Plus
+//!    some noise.
 //! 3. A priority flood from the oceans (Barnes et al. 2014) finds where water
 //!    would pool. Large depressions become lakes, small ones are filled in.
 //!    Every land tile then drains to its steepest-descent neighbor; on flat
@@ -81,16 +85,61 @@ fn assign_moisture(map: &mut Map, noise: &Noise) {
 
     let inland_range = (w as i64 / 5).max(1);
     let latitudes: Vec<i64> = (0..h as u32).map(|y| map.latitude_tenths(y)).collect();
+    let surface: Vec<i64> = map
+        .tiles
+        .iter()
+        .map(|t| i64::from(t.altitude.max(0)))
+        .collect();
+    let water: Vec<Water> = map.tiles.iter().map(|t| t.water).collect();
     for (i, tile) in map.tiles.iter_mut().enumerate() {
         let (x, y) = ((i % w) as i64, (i / w) as i64);
-        let lat = latitudes[y as usize].abs();
-        let mut m = latitude_rainfall(lat);
-        let d = i64::from(dist[i].min(u32::MAX - 1));
-        m = m * (1000 - (d * 650 / inland_range).min(650)) / 1000;
+        let lat = latitudes[y as usize];
+        let mut m = latitude_rainfall(lat.abs());
+
+        // Walk upwind (against the prevailing wind) to the sea, noting the
+        // highest ground the air had to cross.
+        let upwind = -prevailing_wind(lat);
+        let (mut upwind_land, mut barrier) = (0i64, 0i64);
+        let mut cx = x;
+        while upwind_land < inland_range && water[(y as usize) * w + cx as usize] != Water::Ocean {
+            let next = cx + upwind;
+            if next < 0 || next >= w as i64 {
+                break; // the map edge counts as open sea
+            }
+            cx = next;
+            upwind_land += 1;
+            barrier = barrier.max(surface[(y as usize) * w + cx as usize]);
+        }
+        tile.upwind_land = upwind_land as u16;
+        let d_bfs = i64::from(dist[i].min(u32::MAX - 1));
+        let d = (upwind_land + 2 * d_bfs) / 3;
+        m = m * (1000 - (d * 600 / inland_range).min(600)) / 1000;
+
+        // Rain shadow behind mountains higher than the tile itself.
+        let shadow = (barrier - surface[i] - 300).max(0);
+        m = m * (1000 - (shadow * 600 / 2500).min(600)) / 1000;
+        // Orographic rain on slopes rising into the wind.
+        let windward_x = x + upwind;
+        if (0..w as i64).contains(&windward_x) {
+            let rise = surface[i] - surface[(y as usize) * w + windward_x as usize];
+            m = m * (1000 + (rise * 300 / 1000).clamp(0, 300)) / 1000;
+        }
+
         let fx = (2 * x + 1) * ONE * 10 / (2 * w as i64);
         let fy = (2 * y + 1) * ONE * 10 / (2 * w as i64);
         m += noise.fbm(fx, fy, 6) * 450 / ONE;
         tile.moisture = m.clamp(0, 1000) as u16;
+    }
+}
+
+/// Direction the prevailing wind blows toward, east-west, at a latitude in
+/// tenths of a degree: −1 (westward: trade winds and polar easterlies) or +1
+/// (eastward: the westerlies between 30° and 60°).
+pub fn prevailing_wind(latitude_tenths: i64) -> i64 {
+    if (300..600).contains(&latitude_tenths.abs()) {
+        1
+    } else {
+        -1
     }
 }
 
