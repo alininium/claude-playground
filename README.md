@@ -123,7 +123,7 @@ never shift other subsystems' random numbers. Tuning lives in `ClimateConfig`.
 
 | | Freezes | Grows / melts |
 | --- | --- | --- |
-| **Sea ice** | below −1.8 °C | Stefan's law (thin ice grows fast, thick slowly), slower than lakes; melts at 15 mm/°C·day |
+| **Sea ice** | below −1.8 °C; edge bent by warm and cold ocean currents | Stefan's law (thin ice grows fast, thick slowly), slower than lakes; melts at 15 mm/°C·day |
 | **Lake ice** | below 0 °C | Stefan's law, α ≈ 2.4 cm/√(°C·day) |
 | **River ice** | below 0 °C | like lakes, slower (flowing water) |
 | **Snow** | precipitation at ≤ +1 °C | melts at 4 mm/°C·day |

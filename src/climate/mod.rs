@@ -4,7 +4,9 @@
 //!
 //! - **Annual mean** from latitude, lowered by altitude (lapse rate), warmed
 //!   by dryness in the subtropics, cooled deep inside high-latitude
-//!   continents. Oceans are milder than land at the same latitude.
+//!   continents. Oceans are milder than land at the same latitude, and an
+//!   irregular pattern of warm and cold ocean currents (strongest at high
+//!   latitudes, also felt on nearby coasts) makes the sea-ice edge ragged.
 //! - **Seasonal swing**, small at the equator and large toward the poles,
 //!   amplified far from the sea (continentality), damped by oceans, lakes
 //!   and rivers, reversed in the southern hemisphere. Water heats up and
@@ -115,6 +117,7 @@ impl Climate {
         let oscillation = Oscillation::new(SimRng::from_seed(rng.next_u64()));
         let drift = Drift::new(SimRng::from_seed(rng.next_u64()));
         let teleconnections = Noise::new(rng.next_u64());
+        let currents = Noise::new(rng.next_u64());
         // Longitude of the oscillation's warm pool (its "eastern Pacific").
         let center_x = rng.below(u64::from(map.width())) as i64;
 
@@ -127,6 +130,7 @@ impl Climate {
                     i,
                     continentality[i],
                     &teleconnections,
+                    &currents,
                     center_x,
                 )
             })
@@ -399,6 +403,7 @@ fn profile(
     i: usize,
     continentality: u16,
     teleconnections: &Noise,
+    currents: &Noise,
     center_x: i64,
 ) -> TileClimate {
     let tile = &map.tiles()[i];
@@ -414,15 +419,23 @@ fn profile(
             .neighbors(i)
             .any(|nb| matches!(map.tiles()[nb].water, Water::Lake | Water::River));
 
+    // Ocean currents: warm and cold anomalies of a few degrees, in an
+    // irregular pattern. Fully felt at sea, half on the coast, fading inland.
+    let (fx, fy) = (
+        (2 * pos.x as i64 + 1) * ONE * 5 / (2 * i64::from(map.width())),
+        (2 * pos.y as i64 + 1) * ONE * 5 / (2 * i64::from(map.width())),
+    );
+    let current = currents.fbm(fx, fy, 5) * 2 * interpolate(&CURRENT_STRENGTH, abs_lat) / ONE;
+
     // Annual mean.
     let zonal = interpolate(&ZONAL_MEAN, abs_lat);
     let mean = match tile.water {
-        Water::Ocean => (zonal + interpolate(&OCEAN_WARMTH, abs_lat)).max(-20),
-        Water::Lake => zonal - lapse,
+        Water::Ocean => (zonal + interpolate(&OCEAN_WARMTH, abs_lat) + current).max(-20),
+        Water::Lake => zonal - lapse + current * (1000 - cont) / 2000,
         _ => {
             let desert_heat = dryness * 20 / 1000 * i64::from(abs_lat < 400);
             let cold_interior = cont * (abs_lat - 300).max(0) * 40 / (600 * 1000);
-            zonal - lapse + desert_heat - cold_interior
+            zonal - lapse + desert_heat - cold_interior + current * (1000 - cont) / 2000
         }
     };
 
@@ -511,6 +524,17 @@ const OCEAN_WARMTH: [(i64, i64); 7] = [
     (700, 75),
     (800, 40),
     (900, 20),
+];
+
+/// Strength of ocean-current temperature anomalies by latitude, tenths °C
+/// (scaled by noise of typically ±0.3-0.5 and doubled).
+const CURRENT_STRENGTH: [(i64, i64); 6] = [
+    (0, 10),
+    (300, 30),
+    (500, 80),
+    (650, 120),
+    (800, 100),
+    (900, 60),
 ];
 
 /// Typical half summer-winter difference over land, tenths °C.
