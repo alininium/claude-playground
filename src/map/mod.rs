@@ -203,6 +203,14 @@ impl Map {
         900 - 1800 * (2 * i64::from(y) + 1) / (2 * h)
     }
 
+    /// Relative true surface area of a tile in row `y` (cos latitude, per
+    /// mille, at least 1): the map is equirectangular, so polar rows hold far
+    /// less area than their tile count suggests.
+    pub fn area_weight(&self, y: u32) -> i64 {
+        let phase = self.latitude_tenths(y) * crate::climate::trig::FULL_TURN / 3600;
+        (crate::climate::trig::cos(phase) * 1000 / crate::map::noise::ONE).max(1)
+    }
+
     pub fn is_edge(&self, index: usize) -> bool {
         let pos = self.position_of(index as u32);
         pos.x == 0 || pos.y == 0 || pos.x == self.width - 1 || pos.y == self.height - 1

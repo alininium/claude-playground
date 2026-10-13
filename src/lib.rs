@@ -14,6 +14,7 @@ pub mod city;
 pub mod climate;
 pub mod config;
 pub mod events;
+pub mod fertility;
 pub mod map;
 pub mod render;
 pub mod rng;
@@ -22,10 +23,11 @@ pub mod time;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::SingleThreadedExecutor;
 
-use city::{City, CityId, NextCityId, Population};
+use city::{City, CityId, Population};
 use climate::Climate;
 use config::SimConfig;
 use events::EventLog;
+use fertility::Fertility;
 use map::{Map, Position};
 use rng::SimRng;
 use time::{Date, Turn};
@@ -56,12 +58,14 @@ impl Simulation {
             &mut rng,
         );
         let climate = Climate::new(&map, &config.climate, &mut rng);
+        let fertility = Fertility::new(&map, &climate, &mut rng);
+        world.insert_resource(EventLog::default());
+        city::found_initial_cities(&mut world, &config, &map, &climate, &fertility, &mut rng);
         world.insert_resource(map);
         world.insert_resource(climate);
+        world.insert_resource(fertility);
         world.insert_resource(rng);
         world.insert_resource(Turn::default());
-        world.insert_resource(NextCityId::default());
-        world.insert_resource(EventLog::default());
         world.insert_resource(config);
 
         let mut schedule = Schedule::default();
@@ -70,8 +74,8 @@ impl Simulation {
             (
                 time::advance_turn,
                 climate::update_climate,
+                fertility::update_fertility,
                 city::grow_cities,
-                city::spawn_cities,
             )
                 .chain(),
         );
@@ -107,6 +111,10 @@ impl Simulation {
 
     pub fn climate(&self) -> &Climate {
         self.world.resource::<Climate>()
+    }
+
+    pub fn fertility(&self) -> &Fertility {
+        self.world.resource::<Fertility>()
     }
 
     pub fn map(&self) -> &Map {
@@ -152,13 +160,9 @@ impl Simulation {
             h.write_u64(u64::from(tile.flow));
             h.write_u64(tile.downstream.map_or(u64::MAX, u64::from));
         }
-        let climate = self.climate();
-        let (index, heat, drift) = climate.digest_state();
-        for v in [index, heat, drift] {
-            h.write_u64(v as u64);
-        }
-        for &t in climate.temperatures() {
-            h.write(&t.to_le_bytes());
+        self.climate().digest(&mut |v| h.write_u64(v));
+        for &f in self.fertility().values() {
+            h.write(&f.to_le_bytes());
         }
         // Fold in the RNG position without advancing the real stream.
         h.write_u64(self.world.resource::<SimRng>().clone().next_u64());
@@ -182,7 +186,7 @@ impl Simulation {
     /// Renders the map and cities as ASCII. See [`render::ascii`].
     pub fn render_map(&mut self) -> String {
         let cities = self.cities();
-        render::ascii(self.map(), &cities)
+        render::ascii(self.map(), self.climate(), &cities)
     }
 }
 

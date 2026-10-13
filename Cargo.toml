@@ -10,3 +10,11 @@ license = "MIT OR Apache-2.0"
 # left off so system scheduling can never introduce nondeterminism.
 bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
 png = "0.18"
+
+# The simulation is compute-heavy (climate spin-up), so even debug builds and
+# tests get some optimization. Results are identical at every opt level.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

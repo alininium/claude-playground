@@ -16,9 +16,16 @@
 //!   harsher, more continental climate.
 //! - Sensitivity to the planet-wide [`oscillation`]s.
 //!
-//! The temperature at a given turn is then a pure function of that profile,
-//! the date, the time of day and the global oscillation state.
+//! The temperature at a given turn is then a function of that profile, the
+//! date, the time of day, the global oscillation state, and the tile's ice
+//! and snow (which reflect sunlight; see [`cryosphere`]).
+//!
+//! At world creation the climate is spun up for a few years so seasonal
+//! snow, sea ice, frozen ground and the polar caps are already in place at
+//! turn 0. Glaciers are seeded where snow survives the summer, with the
+//! thickness a few centuries of that surplus would have built.
 
+pub mod cryosphere;
 pub mod oscillation;
 pub mod trig;
 
@@ -32,6 +39,7 @@ use crate::map::noise::{Noise, ONE};
 use crate::map::{Map, Water};
 use crate::rng::SimRng;
 use crate::time::{Date, TURNS_PER_DAY, TimeOfDay, Turn};
+use cryosphere::Cryosphere;
 use oscillation::{Drift, Oscillation, OscillationConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +52,10 @@ pub struct ClimateConfig {
     /// Distance from the sea (barriers included) at which a climate is fully
     /// continental.
     pub maritime_range_km: u32,
+    /// Years of climate simulated before turn 0 (at least 2).
+    pub spinup_years: u32,
+    /// Glaciers are seeded with this many years of their yearly snow surplus.
+    pub glacier_seed_years: u32,
     pub oscillation: OscillationConfig,
 }
 
@@ -54,6 +66,8 @@ impl Default for ClimateConfig {
             lapse_rate: 65,
             planet_circumference_km: 40_000,
             maritime_range_km: 1_500,
+            spinup_years: 4,
+            glacier_seed_years: 300,
             oscillation: OscillationConfig::default(),
         }
     }
@@ -88,6 +102,12 @@ pub struct Climate {
     width: usize,
     oscillation: Oscillation,
     drift: Drift,
+    cryosphere: Cryosphere,
+    /// Growing degree-days (above 5 °C) so far this year, in tenths of a
+    /// degree times quarter-days.
+    growing: Vec<u32>,
+    /// Growing degree-days of the last full year, °C·days.
+    growing_last_year: Vec<u32>,
 }
 
 impl Climate {
@@ -111,21 +131,99 @@ impl Climate {
                 )
             })
             .collect();
-        let row_weight = (0..map.height())
-            .map(|y| trig::cos(map.latitude_tenths(y) * trig::FULL_TURN / 3600) * 1000 / ONE)
-            .collect();
+        let row_weight = (0..map.height()).map(|y| map.area_weight(y)).collect();
 
+        let n = map.tile_count() as usize;
         let mut climate = Self {
             days_per_year: config.days_per_year,
             profiles,
-            temperature: vec![0; map.tile_count() as usize],
+            temperature: vec![0; n],
             row_weight,
             width: map.width() as usize,
             oscillation,
             drift,
+            cryosphere: Cryosphere::new(n),
+            growing: vec![0; n],
+            growing_last_year: vec![0; n],
         };
+        climate.spin_up(map, config);
         climate.update_temperatures(0);
         climate
+    }
+
+    /// Runs whole years of neutral climate (no oscillation, no drift) at
+    /// daily resolution, seeding glaciers after the second year.
+    fn spin_up(&mut self, map: &Map, config: &ClimateConfig) {
+        let years = config.spinup_years.max(2);
+        let land = |i: usize| matches!(map.tiles()[i].water, Water::Dry | Water::River);
+        let mut before = Vec::new();
+        for year in 0..years {
+            if year == 1 {
+                before = self.ice_mass();
+            }
+            for day in 0..self.days_per_year {
+                for (i, t) in self.temperature.iter_mut().enumerate() {
+                    let mean =
+                        daily_mean_temperature(&self.profiles[i], day, self.days_per_year, 0, 0)
+                            - self.cryosphere.albedo_cooling(i);
+                    *t = mean.clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+                }
+                self.cryosphere.step(
+                    map,
+                    &self.temperature,
+                    TURNS_PER_DAY as u32,
+                    self.days_per_year,
+                );
+                self.accumulate_growth(TURNS_PER_DAY as u32);
+                // No flow before seeding: the surplus must be snowfall alone.
+                if year >= 2 {
+                    self.cryosphere.flow_glaciers(map);
+                }
+            }
+            self.end_year();
+            if year == 1 {
+                let after = self.ice_mass();
+                let seed_years = i64::from(config.glacier_seed_years);
+                for (i, f) in self.cryosphere.tiles_mut().iter_mut().enumerate() {
+                    let surplus = after[i] - before[i];
+                    if land(i) && surplus > 0 {
+                        f.glacier =
+                            (i64::from(f.glacier) + surplus * seed_years).min(30_000_000) as u32;
+                    }
+                }
+            }
+        }
+    }
+
+    fn ice_mass(&self) -> Vec<i64> {
+        self.cryosphere
+            .tiles()
+            .iter()
+            .map(|f| i64::from(f.snow) + i64::from(f.glacier))
+            .collect()
+    }
+
+    fn accumulate_growth(&mut self, quarters: u32) {
+        for (g, &t) in self.growing.iter_mut().zip(&self.temperature) {
+            *g += (i32::from(t) - 50).max(0) as u32 * quarters;
+        }
+    }
+
+    fn end_year(&mut self) {
+        self.cryosphere.end_year();
+        for (last, g) in self.growing_last_year.iter_mut().zip(&mut self.growing) {
+            *last = *g / 40;
+            *g = 0;
+        }
+    }
+
+    pub fn cryosphere(&self) -> &Cryosphere {
+        &self.cryosphere
+    }
+
+    /// Growing degree-days (base 5 °C) of the last full year, °C·days.
+    pub fn growing_degree_days(&self, index: usize) -> u32 {
+        self.growing_last_year[index]
     }
 
     pub fn temperature(&self, index: usize) -> i16 {
@@ -172,29 +270,75 @@ impl Climate {
         let date = Date::from_turn(turn, self.days_per_year);
         let osc = self.oscillation.state().0;
         let drift = self.drift.anomaly();
-        for (t, profile) in self.temperature.iter_mut().zip(&self.profiles) {
-            *t = temperature_at(profile, &date, self.days_per_year, osc, drift)
-                .clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+        for (i, (t, profile)) in self.temperature.iter_mut().zip(&self.profiles).enumerate() {
+            let temp = temperature_at(profile, &date, self.days_per_year, osc, drift)
+                - self.cryosphere.albedo_cooling(i);
+            *t = temp.clamp(i16::MIN as i64, i16::MAX as i64) as i16;
         }
     }
 
-    pub(crate) fn digest_state(&self) -> (i64, i64, i64) {
+    pub(crate) fn digest(&self, write: &mut impl FnMut(u64)) {
         let (index, heat) = self.oscillation.state();
-        (index, heat, self.drift.anomaly())
+        for v in [index, heat, self.drift.anomaly()] {
+            write(v as u64);
+        }
+        for &t in &self.temperature {
+            write(t as u64);
+        }
+        for f in self.cryosphere.tiles() {
+            for v in [
+                f.snow,
+                f.ice,
+                f.glacier,
+                f.frost,
+                f.thaw,
+                u32::from(f.permafrost),
+            ] {
+                write(u64::from(v));
+            }
+        }
+        for (&g, &last) in self.growing.iter().zip(&self.growing_last_year) {
+            write(u64::from(g) << 32 | u64::from(last));
+        }
     }
 }
 
 /// Runs every turn: advances the global oscillations at the start of each
-/// day, then recomputes every tile's temperature.
-pub fn update_climate(turn: Res<Turn>, config: Res<SimConfig>, mut climate: ResMut<Climate>) {
+/// day (and closes the books at the start of each year), recomputes every
+/// tile's temperature, then lets ice and snow respond to it.
+pub fn update_climate(
+    turn: Res<Turn>,
+    config: Res<SimConfig>,
+    map: Res<Map>,
+    mut climate: ResMut<Climate>,
+) {
+    let date = Date::from_turn(turn.0, climate.days_per_year);
     if turn.0.is_multiple_of(TURNS_PER_DAY) {
         climate.advance_day(&config.climate.oscillation);
+        if date.day_of_year == 0 {
+            climate.end_year();
+        }
     }
     climate.update_temperatures(turn.0);
+    let climate = &mut *climate;
+    climate
+        .cryosphere
+        .step(&map, &climate.temperature, 1, climate.days_per_year);
+    climate.accumulate_growth(1);
+    if date.time_of_day == TimeOfDay::Night {
+        climate.cryosphere.flow_glaciers(&map);
+    }
 }
 
-/// Temperature in tenths of a degree for a tile profile at a point in time.
-/// `oscillation_index` and `drift` are in °C · ONE.
+/// True on the first turn of a new simulated year (when last year's
+/// statistics have just been finalized).
+pub fn is_new_year(turn: u64, days_per_year: u32) -> bool {
+    let date = Date::from_turn(turn, days_per_year);
+    turn > 0 && date.day_of_year == 0 && date.time_of_day == TimeOfDay::Morning
+}
+
+/// Temperature in tenths of a degree for a tile profile at a point in time,
+/// before ice/snow albedo. `oscillation_index` and `drift` are in °C · ONE.
 pub fn temperature_at(
     profile: &TileClimate,
     date: &Date,
@@ -202,13 +346,8 @@ pub fn temperature_at(
     oscillation_index: i64,
     drift: i64,
 ) -> i64 {
-    // Seasons: a cosine peaking `lag` days after the northern summer solstice
-    // (a quarter year after turn 0), at quarter-day resolution.
-    let quarter_days_per_year = i64::from(days_per_year) * 4;
     let now = i64::from(date.day_of_year) * 4 + date.time_of_day as i64;
-    let peak = (i64::from(days_per_year) / 4 + i64::from(profile.seasonal_lag_days)) * 4;
-    let phase = (now - peak) * trig::FULL_TURN / quarter_days_per_year;
-    let seasonal = i64::from(profile.seasonal_amplitude) * trig::cos(phase) / ONE;
+    let mean = mean_at(profile, now, days_per_year, oscillation_index, drift);
 
     // Daily cycle, per mille of the diurnal range; averages to zero.
     let diurnal_share = match date.time_of_day {
@@ -218,11 +357,40 @@ pub fn temperature_at(
         TimeOfDay::Night => -400,
     };
     let diurnal = i64::from(profile.diurnal_range) * diurnal_share / 1000;
+    mean + diurnal
+}
+
+/// Average temperature over a whole day (the daily cycle averages out).
+pub fn daily_mean_temperature(
+    profile: &TileClimate,
+    day_of_year: u32,
+    days_per_year: u32,
+    oscillation_index: i64,
+    drift: i64,
+) -> i64 {
+    let midday = i64::from(day_of_year) * 4 + 1;
+    mean_at(profile, midday, days_per_year, oscillation_index, drift)
+}
+
+/// Everything but the daily cycle, at `now` quarter-days into the year.
+fn mean_at(
+    profile: &TileClimate,
+    now: i64,
+    days_per_year: u32,
+    oscillation_index: i64,
+    drift: i64,
+) -> i64 {
+    // Seasons: a cosine peaking `lag` days after the northern summer solstice
+    // (a quarter year after turn 0), at quarter-day resolution.
+    let quarter_days_per_year = i64::from(days_per_year) * 4;
+    let peak = (i64::from(days_per_year) / 4 + i64::from(profile.seasonal_lag_days)) * 4;
+    let phase = (now - peak) * trig::FULL_TURN / quarter_days_per_year;
+    let seasonal = i64::from(profile.seasonal_amplitude) * trig::cos(phase) / ONE;
 
     let oscillation = oscillation_index * i64::from(profile.oscillation_weight) * 10 / (1000 * ONE);
     let drift = drift * i64::from(profile.drift_weight) * 10 / (1000 * ONE);
 
-    i64::from(profile.mean) + seasonal + diurnal + oscillation + drift
+    i64::from(profile.mean) + seasonal + oscillation + drift
 }
 
 fn profile(
@@ -249,7 +417,7 @@ fn profile(
     // Annual mean.
     let zonal = interpolate(&ZONAL_MEAN, abs_lat);
     let mean = match tile.water {
-        Water::Ocean => zonal.max(-20),
+        Water::Ocean => (zonal + interpolate(&OCEAN_WARMTH, abs_lat)).max(-20),
         Water::Lake => zonal - lapse,
         _ => {
             let desert_heat = dryness * 20 / 1000 * i64::from(abs_lat < 400);
@@ -332,6 +500,19 @@ const ZONAL_MEAN: [(i64, i64); 10] = [
     (900, -250),
 ];
 
+/// How much warmer the sea surface air is than the zonal mean, tenths °C:
+/// ocean currents carry heat poleward, keeping mid- and high-latitude seas
+/// ice-free until about 65°.
+const OCEAN_WARMTH: [(i64, i64); 7] = [
+    (0, 0),
+    (300, 0),
+    (450, 30),
+    (600, 75),
+    (700, 75),
+    (800, 40),
+    (900, 20),
+];
+
 /// Typical half summer-winter difference over land, tenths °C.
 const ZONAL_SWING: [(i64, i64); 7] = [
     (0, 10),
@@ -343,7 +524,8 @@ const ZONAL_SWING: [(i64, i64); 7] = [
     (900, 220),
 ];
 
-fn interpolate(table: &[(i64, i64)], x: i64) -> i64 {
+/// Piecewise-linear lookup in a table sorted by `x`, clamped at the ends.
+pub(crate) fn interpolate(table: &[(i64, i64)], x: i64) -> i64 {
     for pair in table.windows(2) {
         let ((x0, y0), (x1, y1)) = (pair[0], pair[1]);
         if x <= x1 {

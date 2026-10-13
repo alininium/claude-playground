@@ -6,22 +6,30 @@ use std::path::Path;
 
 use crate::CitySnapshot;
 use crate::climate::Climate;
+use crate::climate::cryosphere::Cover;
+use crate::fertility::Fertility;
 use crate::map::{Biome, Map, Water};
 
 /// `~` water, `.` earth, `:` sand, `n` hills, `^` mountains, `=` river,
+/// `#` glacier or ice-covered water, `*` snow-covered land,
 /// `o`/`O`/`@` cities by size.
-pub fn ascii(map: &Map, cities: &[CitySnapshot]) -> String {
+pub fn ascii(map: &Map, climate: &Climate, cities: &[CitySnapshot]) -> String {
     let w = map.width() as usize;
     let mut grid: Vec<char> = map
         .tiles()
         .iter()
-        .map(|t| match (t.biome, t.water) {
-            (Biome::Water, _) => '~',
-            (_, Water::River) => '=',
-            (Biome::Earth, _) => '.',
-            (Biome::Sand, _) => ':',
-            (Biome::Hills, _) => 'n',
-            (Biome::Mountains, _) => '^',
+        .enumerate()
+        .map(|(i, t)| match climate.cryosphere().cover(map, i) {
+            Cover::Glacier | Cover::SeaIce | Cover::LakeIce => '#',
+            Cover::Snow => '*',
+            _ => match (t.biome, t.water) {
+                (Biome::Water, _) => '~',
+                (_, Water::River) => '=',
+                (Biome::Earth, _) => '.',
+                (Biome::Sand, _) => ':',
+                (Biome::Hills, _) => 'n',
+                (Biome::Mountains, _) => '^',
+            },
         })
         .collect();
     for c in cities {
@@ -41,10 +49,17 @@ fn city_glyph(population: u64) -> char {
     }
 }
 
-/// Writes a shaded relief map, `scale` pixels per tile.
-pub fn png(map: &Map, cities: &[CitySnapshot], scale: u32, path: &Path) -> io::Result<()> {
+/// Writes a shaded relief map with the current ice and snow, `scale` pixels
+/// per tile.
+pub fn png(
+    map: &Map,
+    climate: &Climate,
+    cities: &[CitySnapshot],
+    scale: u32,
+    path: &Path,
+) -> io::Result<()> {
     let mut tile_rgb: Vec<[u8; 3]> = (0..map.tile_count() as usize)
-        .map(|i| tile_color(map, i))
+        .map(|i| tile_color(map, climate, i))
         .collect();
     for c in cities {
         tile_rgb[map.index(c.position)] = [200, 30, 30];
@@ -111,10 +126,33 @@ fn write_png(map: &Map, colors: &[[u8; 3]], scale: u32, path: &Path) -> io::Resu
     Ok(())
 }
 
-fn tile_color(map: &Map, i: usize) -> [u8; 3] {
+/// Writes a fertility map: barren land brown, fertile land deep green.
+pub fn fertility_png(map: &Map, fertility: &Fertility, scale: u32, path: &Path) -> io::Result<()> {
+    let colors: Vec<[u8; 3]> = (0..map.tile_count() as usize)
+        .map(|i| {
+            let tile = &map.tiles()[i];
+            if matches!(tile.water, Water::Ocean | Water::Lake) {
+                return [40, 60, 110];
+            }
+            let f = i32::from(fertility.fertility(i));
+            let lerp = |a: i32, b: i32| (a + (b - a) * f / 1000) as u8;
+            [lerp(170, 20), lerp(150, 120), lerp(120, 20)]
+        })
+        .collect();
+    write_png(map, &colors, scale, path)
+}
+
+fn tile_color(map: &Map, climate: &Climate, i: usize) -> [u8; 3] {
     let tile = &map.tiles()[i];
     let alt = tile.altitude;
-    let base: [i32; 3] = match (tile.biome, tile.water) {
+    let ice: Option<[i32; 3]> = match climate.cryosphere().cover(map, i) {
+        Cover::Glacier => Some([235, 242, 250]),
+        Cover::SeaIce => Some([215, 228, 240]),
+        Cover::LakeIce | Cover::RiverIce => Some([200, 225, 245]),
+        Cover::Snow => Some([245, 247, 250]),
+        _ => None,
+    };
+    let base: [i32; 3] = ice.unwrap_or(match (tile.biome, tile.water) {
         (_, Water::Ocean) => {
             let d = (-alt).clamp(0, 5000);
             [70 - d * 50 / 5000, 130 - d * 90 / 5000, 200 - d * 90 / 5000]
@@ -133,7 +171,7 @@ fn tile_color(map: &Map, i: usize) -> [u8; 3] {
             ]
         }
         (Biome::Water, _) => [70, 130, 200],
-    };
+    });
     // Hillshade: light from the north-west.
     let shade = if matches!(tile.water, Water::Ocean | Water::Lake) {
         0

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use societies::Simulation;
+use societies::climate::cryosphere::Cover;
 use societies::config::SimConfig;
 use societies::events::SimEvent;
 use societies::map::{Biome, Water};
@@ -10,7 +11,7 @@ use societies::time::{TURNS_PER_DAY, TimeOfDay};
 
 const USAGE: &str = "usage: societies [--seed N] [--years N | --days N | --turns N] \
 [--width N] [--height N] [--land PER_MILLE] [--png FILE] [--temp-png FILE] \
-[--scale PIXELS_PER_TILE] [--quiet]
+[--fertility-png FILE] [--scale PIXELS_PER_TILE] [--quiet]
 
 One turn is a quarter of a day (morning, day, evening, night). Default: 2 years.";
 
@@ -21,6 +22,7 @@ fn main() -> ExitCode {
     let mut years: Option<u64> = None;
     let mut png: Option<PathBuf> = None;
     let mut temp_png: Option<PathBuf> = None;
+    let mut fertility_png: Option<PathBuf> = None;
     let mut scale: u32 = 4;
     let mut quiet = false;
 
@@ -35,15 +37,15 @@ fn main() -> ExitCode {
                 quiet = true;
                 continue;
             }
-            "--png" | "--temp-png" => {
+            "--png" | "--temp-png" | "--fertility-png" => {
                 let Some(path) = args.next() else {
                     eprintln!("missing value for {flag}\n{USAGE}");
                     return ExitCode::FAILURE;
                 };
-                if flag == "--png" {
-                    png = Some(path.into());
-                } else {
-                    temp_png = Some(path.into());
+                match flag.as_str() {
+                    "--png" => png = Some(path.into()),
+                    "--temp-png" => temp_png = Some(path.into()),
+                    _ => fertility_png = Some(path.into()),
                 }
                 continue;
             }
@@ -83,6 +85,8 @@ fn main() -> ExitCode {
     );
     let mut sim = Simulation::new(config);
     print_map_summary(&sim);
+    print_fertility_summary(&sim);
+    print_frozen_summary(&sim);
     if !quiet {
         println!("\nclimate at the start of each season (afternoon):");
     }
@@ -91,6 +95,7 @@ fn main() -> ExitCode {
         let date = sim.date();
         if !quiet && date.day_of_season == 0 && date.time_of_day == TimeOfDay::Day {
             print_climate_report(&sim);
+            print_frozen_summary(&sim);
         }
     }
 
@@ -139,11 +144,18 @@ fn main() -> ExitCode {
     println!("\n{} cities, total population {total}", cities.len());
 
     if let Some(path) = png {
-        if let Err(e) = render::png(sim.map(), &cities, scale, &path) {
+        if let Err(e) = render::png(sim.map(), sim.climate(), &cities, scale, &path) {
             eprintln!("failed to write {}: {e}", path.display());
             return ExitCode::FAILURE;
         }
         println!("map written to {}", path.display());
+    }
+    if let Some(path) = fertility_png {
+        if let Err(e) = render::fertility_png(sim.map(), sim.fertility(), scale, &path) {
+            eprintln!("failed to write {}: {e}", path.display());
+            return ExitCode::FAILURE;
+        }
+        println!("fertility map written to {}", path.display());
     }
     if let Some(path) = temp_png {
         if let Err(e) = render::temperature_png(sim.map(), sim.climate(), scale, &path) {
@@ -202,5 +214,55 @@ oscillation {:>+5.1}°C ({:?})  drift {:>+4.1}°C",
         osc.index_tenths() as f64 / 10.0,
         osc.phase(config),
         climate.drift().anomaly_tenths() as f64 / 10.0,
+    );
+}
+
+fn print_frozen_summary(sim: &Simulation) {
+    let map = sim.map();
+    let cryo = sim.climate().cryosphere();
+    let tiles = map.tiles();
+    // Shares of true surface area, not of tile counts.
+    let area = |i: usize| map.area_weight(map.position_of(i as u32).y);
+    let share = |filter: &dyn Fn(usize) -> bool, of: &dyn Fn(usize) -> bool| {
+        let total: i64 = (0..tiles.len()).filter(|&i| of(i)).map(area).sum();
+        let part: i64 = (0..tiles.len())
+            .filter(|&i| of(i) && filter(i))
+            .map(area)
+            .sum();
+        part as f64 * 100.0 / total.max(1) as f64
+    };
+    let is = |w: Water| move |i: usize| tiles[i].water == w;
+    let land = |i: usize| matches!(tiles[i].water, Water::Dry | Water::River);
+    let cover = |c: Cover| move |i: usize| cryo.cover(map, i) == c;
+    println!(
+        "    frozen (by area): sea ice {:.1}% of ocean, lakes {:.0}%, rivers {:.0}%; land: glacier {:.1}%, \
+snow {:.1}%, frozen ground {:.1}%, permafrost {:.1}%",
+        share(&cover(Cover::SeaIce), &is(Water::Ocean)),
+        share(&cover(Cover::LakeIce), &is(Water::Lake)),
+        share(&cover(Cover::RiverIce), &is(Water::River)),
+        share(&cover(Cover::Glacier), &land),
+        share(&cover(Cover::Snow), &land),
+        share(&cover(Cover::FrozenGround), &land),
+        share(&|i| cryo.tile(i).permafrost, &land),
+    );
+}
+
+fn print_fertility_summary(sim: &Simulation) {
+    let map = sim.map();
+    let fertility = sim.fertility();
+    let land: Vec<u16> = (0..map.tile_count() as usize)
+        .filter(|&i| matches!(map.tiles()[i].water, Water::Dry | Water::River))
+        .map(|i| fertility.fertility(i))
+        .collect();
+    let n = land.len().max(1) as f64;
+    let mean = land.iter().map(|&f| f64::from(f)).sum::<f64>() / n / 10.0;
+    let pct =
+        |lo: u16, hi: u16| land.iter().filter(|&&f| f >= lo && f < hi).count() as f64 * 100.0 / n;
+    println!(
+        "fertility (by area): land mean {mean:.0}%; barren (<10%) {:.1}%, poor {:.1}%, fair {:.1}%, rich (60%+) {:.1}%",
+        pct(0, 100),
+        pct(100, 300),
+        pct(300, 600),
+        pct(600, 1001),
     );
 }

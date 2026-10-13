@@ -36,64 +36,91 @@ fn different_seeds_diverge() {
 }
 
 #[test]
-fn cities_start_at_ten_and_grow_slowly() {
+fn cities_are_placed_at_generation_and_only_grow() {
     let mut sim = Simulation::new(SimConfig {
         map_width: 64,
         map_height: 32,
         city_growth_per_mille_per_year: 300,
         ..config(99)
     });
+    let start = sim.cities();
+    assert!(!start.is_empty());
+    assert!(start.len() <= sim.config().initial_cities as usize);
+    for c in &start {
+        assert_eq!((c.founded_on, c.population), (0, 10));
+    }
+
     let years = 3;
     sim.run(years * sim.config().turns_per_year());
-    let cities = sim.cities();
-    assert!(
-        !cities.is_empty(),
-        "expected some cities after {years} years"
+    let end = sim.cities();
+    assert_eq!(
+        end.iter().map(|c| (c.id, c.position)).collect::<Vec<_>>(),
+        start.iter().map(|c| (c.id, c.position)).collect::<Vec<_>>(),
+        "no cities may appear (or move) during play"
     );
-    let cap = SimConfig::default().city_carrying_capacity;
-    for c in &cities {
-        assert!(c.population >= 10 && c.population <= cap);
-        if c.founded_on == sim.turn() {
-            assert_eq!(c.population, 10);
-        }
+    for c in &end {
+        assert!(c.population > 10, "{} did not grow", c.name);
+        // 30% a year, compounded every turn: at most 10 · e^0.9 ≈ 24.6 in three years.
+        assert!(
+            c.population <= 24,
+            "{} grew too fast: {}",
+            c.name,
+            c.population
+        );
     }
-    let oldest = &cities[0];
-    assert!(oldest.population > 10, "oldest city should have grown");
-    // 30% a year compounds to at most 10 · 1.3³ ≈ 22 in three years.
-    assert!(
-        oldest.population <= 22,
-        "grew too fast: {}",
-        oldest.population
-    );
 }
 
 #[test]
-fn cities_fill_only_habitable_tiles_once() {
+fn initial_cities_are_spaced_out_on_settleable_land() {
     let mut sim = Simulation::new(SimConfig {
-        seed: 5,
-        map_width: 24,
-        map_height: 12,
-        city_foundings_per_year: u32::MAX,
-        ..SimConfig::default()
+        initial_cities: 40,
+        ..config(5)
     });
-    let habitable = (0..sim.map().tile_count() as usize)
-        .filter(|&i| sim.map().is_habitable(i))
-        .count();
-    assert!(habitable > 0);
-    sim.run(habitable as u64 + 10);
     let cities = sim.cities();
-    assert_eq!(
-        cities.len(),
-        habitable,
-        "every habitable tile should be settled"
-    );
-    let mut positions: Vec<_> = cities.iter().map(|c| c.position).collect();
-    positions.sort();
-    positions.dedup();
-    assert_eq!(positions.len(), habitable, "two cities share a tile");
-    for c in &cities {
-        assert!(sim.map().is_habitable(sim.map().index(c.position)));
+    assert_eq!(cities.len(), 40);
+    let spacing = sim.config().min_city_distance;
+    for (i, a) in cities.iter().enumerate() {
+        let index = sim.map().index(a.position);
+        assert!(societies::city::can_settle(sim.map(), sim.climate(), index));
+        for b in &cities[i + 1..] {
+            let d = a
+                .position
+                .x
+                .abs_diff(b.position.x)
+                .max(a.position.y.abs_diff(b.position.y));
+            assert!(
+                d >= spacing,
+                "{} and {} are {d} tiles apart",
+                a.name,
+                b.name
+            );
+        }
     }
+}
+
+#[test]
+fn cities_prefer_fertile_land() {
+    let mut sim = Simulation::new(SimConfig {
+        initial_cities: 30,
+        ..config(8)
+    });
+    let cities = sim.cities();
+    let map = sim.map();
+    let fertility = sim.fertility();
+    let land: Vec<usize> = (0..map.tile_count() as usize)
+        .filter(|&i| societies::city::can_settle(map, sim.climate(), i))
+        .collect();
+    let land_avg = land
+        .iter()
+        .map(|&i| u64::from(fertility.fertility(i)))
+        .sum::<u64>()
+        / land.len() as u64;
+    let city_avg = cities
+        .iter()
+        .map(|c| u64::from(fertility.fertility(map.index(c.position))))
+        .sum::<u64>()
+        / cities.len() as u64;
+    assert!(city_avg > land_avg, "cities {city_avg} vs land {land_avg}");
 }
 
 #[test]
