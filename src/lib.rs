@@ -14,6 +14,7 @@ pub mod city;
 pub mod config;
 pub mod events;
 pub mod map;
+pub mod render;
 pub mod rng;
 pub mod turn;
 
@@ -45,8 +46,15 @@ pub struct CitySnapshot {
 impl Simulation {
     pub fn new(config: SimConfig) -> Self {
         let mut world = World::new();
-        world.insert_resource(Map::new(config.map_width, config.map_height));
-        world.insert_resource(SimRng::from_seed(config.seed));
+        let mut rng = SimRng::from_seed(config.seed);
+        let map = Map::generate(
+            config.map_width,
+            config.map_height,
+            &config.terrain,
+            &mut rng,
+        );
+        world.insert_resource(map);
+        world.insert_resource(rng);
         world.insert_resource(Turn::default());
         world.insert_resource(NextCityId::default());
         world.insert_resource(EventLog::default());
@@ -109,6 +117,13 @@ impl Simulation {
     pub fn state_digest(&mut self) -> u64 {
         let mut h = Fnv1a::new();
         h.write_u64(self.turn());
+        for tile in self.map().tiles() {
+            h.write_u64(tile.altitude as u64);
+            h.write(&[tile.biome as u8, tile.water as u8]);
+            h.write_u64(u64::from(tile.moisture));
+            h.write_u64(u64::from(tile.flow));
+            h.write_u64(tile.downstream.map_or(u64::MAX, u64::from));
+        }
         // Fold in the RNG position without advancing the real stream.
         h.write_u64(self.world.resource::<SimRng>().clone().next_u64());
         let mut query = self
@@ -128,21 +143,10 @@ impl Simulation {
         h.finish()
     }
 
-    /// Renders the map as ASCII: `.` empty tile, `o` village, `O` town, `@` city.
+    /// Renders the map and cities as ASCII. See [`render::ascii`].
     pub fn render_map(&mut self) -> String {
-        let (w, h) = (self.map().width(), self.map().height());
-        let mut grid = vec![vec!['.'; w as usize]; h as usize];
-        for c in self.cities() {
-            grid[c.position.y as usize][c.position.x as usize] = match c.population {
-                0..100 => 'o',
-                100..1000 => 'O',
-                _ => '@',
-            };
-        }
-        grid.into_iter()
-            .map(|row| row.into_iter().collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+        let cities = self.cities();
+        render::ascii(self.map(), &cities)
     }
 }
 

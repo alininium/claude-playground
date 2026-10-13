@@ -3,12 +3,15 @@
 
 use bevy_ecs::prelude::Resource;
 
+use crate::map::TerrainConfig;
+
 #[derive(Resource, Debug, Clone, PartialEq, Eq)]
 pub struct SimConfig {
     /// Seed for the single simulation RNG stream.
     pub seed: u64,
     pub map_width: u32,
     pub map_height: u32,
+    pub terrain: TerrainConfig,
     /// Chance (in 1/1000) that a new city is founded on any given turn.
     pub city_spawn_chance_per_mille: u32,
     /// Population a freshly founded city starts with.
@@ -23,8 +26,9 @@ impl Default for SimConfig {
     fn default() -> Self {
         Self {
             seed: 0,
-            map_width: 64,
-            map_height: 32,
+            map_width: 128,
+            map_height: 64,
+            terrain: TerrainConfig::default(),
             city_spawn_chance_per_mille: 100,
             initial_city_population: 10,
             city_growth_per_mille: 20,

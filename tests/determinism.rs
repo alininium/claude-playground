@@ -53,19 +53,30 @@ fn cities_start_at_ten_and_grow_slowly() {
 }
 
 #[test]
-fn cities_never_share_a_tile() {
+fn cities_fill_only_habitable_tiles_once() {
     let mut sim = Simulation::new(SimConfig {
         seed: 5,
-        map_width: 4,
-        map_height: 4,
+        map_width: 24,
+        map_height: 12,
         city_spawn_chance_per_mille: 1000,
         ..SimConfig::default()
     });
-    sim.run(50);
+    let habitable = (0..sim.map().tile_count() as usize)
+        .filter(|&i| sim.map().is_habitable(i))
+        .count();
+    assert!(habitable > 0);
+    sim.run(habitable as u64 + 10);
     let cities = sim.cities();
-    assert_eq!(cities.len(), 16, "map should be completely filled");
+    assert_eq!(
+        cities.len(),
+        habitable,
+        "every habitable tile should be settled"
+    );
     let mut positions: Vec<_> = cities.iter().map(|c| c.position).collect();
     positions.sort();
     positions.dedup();
-    assert_eq!(positions.len(), 16);
+    assert_eq!(positions.len(), habitable, "two cities share a tile");
+    for c in &cities {
+        assert!(sim.map().is_habitable(sim.map().index(c.position)));
+    }
 }

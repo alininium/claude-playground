@@ -73,21 +73,23 @@ pub fn spawn_cities(
         return;
     }
 
-    let mut occupied = vec![false; map.tile_count() as usize];
+    let mut available: Vec<bool> = (0..map.tile_count() as usize)
+        .map(|i| map.is_habitable(i))
+        .collect();
     for pos in &existing {
-        occupied[map.index(*pos)] = true;
+        available[map.index(*pos)] = false;
     }
-    let free = occupied.iter().filter(|o| !**o).count() as u64;
+    let free = available.iter().filter(|a| **a).count() as u64;
     if free == 0 {
         return;
     }
 
     // Pick the n-th free tile in row-major order: independent of query order.
     let n = rng.below(free) as usize;
-    let index = occupied
+    let index = available
         .iter()
         .enumerate()
-        .filter(|(_, o)| !**o)
+        .filter(|(_, a)| **a)
         .nth(n)
         .map(|(i, _)| i as u32)
         .expect("n < free");
