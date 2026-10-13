@@ -1,0 +1,11 @@
+[package]
+name = "societies"
+version = "0.1.0"
+edition = "2024"
+description = "Turn-based, fully deterministic simulation of societies built on an ECS."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Only the single-threaded executor: the `multi_threaded` feature is deliberately
+# left off so system scheduling can never introduce nondeterminism.
+bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
