@@ -13,6 +13,10 @@ fertility. Cities are placed on fertile land when the world is created, each
 with 10 people, and then grow slowly (logistic growth toward a carrying
 capacity); no new cities are founded during play.
 
+**[docs/MODEL.md](docs/MODEL.md)** documents every formula: which physical
+laws and published methods it is built on, and which effects and constants
+are this project's own simplifications.
+
 ![Example world, seed 3](docs/example-map.png)
 
 ## Running
@@ -166,6 +170,44 @@ placed with probability proportional to fertility and at least
 
 ![Fertility, seed 3](docs/example-fertility.png)
 
+## Fifty years of climate
+
+One run of seed 3 (256×128) over 50 simulated years.
+
+**The ENSO-like oscillation.** Warm (El Niño-like) and cold (La Niña-like)
+phases arrive irregularly every 2-7 years with different strengths. The
+global mean temperature (about ±0.25 °C) and sea ice follow them.
+
+![Oscillation index, global mean temperature and sea ice over 50 years](docs/figures/1-enso-index.png)
+
+**Where it is felt.** The footprint is strongest over the tropical warm pool,
+reversed on the far side of the planet, and patchy elsewhere. The two lower
+maps show the actual temperature anomaly at the strongest warm (+2.2 °C) and
+cold (−2.7 °C) moments.
+
+![Oscillation footprint and peak warm and cold anomalies](docs/figures/2-enso-maps.png)
+
+**Fifty years apart.** The same winter day in year 1 and year 51, and where ice
+and snow cover changed.
+
+![Year 1 vs year 51, ice and snow change](docs/figures/3-fifty-years-ice.png)
+
+**What changed.** Annual mean temperature, year 50 minus year 1, plus the
+trends. With the default drift (150-year timescale, ±0.5 °C) there is no
+visible climate trend over 50 years. The temperature difference is mostly the
+oscillation (year 50 was a cold-phase year). The glacier growth is the ice
+sheets still settling after world creation, and population follows its 3%
+logistic growth.
+
+![Annual mean temperature difference and 50-year trends](docs/figures/4-fifty-years-trends.png)
+
+To regenerate the figures (needs Python with numpy, matplotlib and pillow):
+
+```sh
+cargo run --release --example figures -- /tmp/fig
+python3 tools/plot_figures.py /tmp/fig docs/figures
+```
+
 ## Determinism rules
 
 Every run is a pure function of its `SimConfig`, so experiments with different
@@ -210,6 +252,8 @@ zones, fertility rules).
 | `src/climate/trig.rs` | Integer sine/cosine |
 | `src/events.rs` | `EventLog` of notable happenings |
 | `src/main.rs` | Command-line runner |
+| `examples/figures.rs`, `tools/plot_figures.py` | Data dump and plotting for `docs/figures/` |
+| `docs/MODEL.md` | The model: laws, sources, and our own simplifications |
 
 A turn runs: `advance_turn` → `update_climate` (temperatures, then ice and
 snow) → `update_fertility` (at each new year) → `grow_cities`. City growth is
