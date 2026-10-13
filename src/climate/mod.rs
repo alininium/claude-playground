@@ -698,7 +698,9 @@ fn profile(
     let current = currents.fbm(fx, fy, 5) * 2 * interpolate(&CURRENT_STRENGTH, abs_lat) / ONE;
 
     // Annual mean.
-    let zonal = interpolate(&ZONAL_MEAN, abs_lat);
+    // Tropical climates follow the thermal equator, not the geographic one.
+    let tropical_lat = crate::map::hydrology::tropical_latitude(lat, tile.tropical_shift).abs();
+    let zonal = interpolate(&ZONAL_MEAN, tropical_lat);
     let mean = match tile.water {
         Water::Ocean => (zonal + interpolate(&OCEAN_WARMTH, abs_lat) + current).max(-20),
         Water::Lake => zonal - lapse + current * (1000 - cont) / 2000,
@@ -710,7 +712,7 @@ fn profile(
     };
 
     // Seasonal swing.
-    let zonal_swing = interpolate(&ZONAL_SWING, abs_lat);
+    let zonal_swing = interpolate(&ZONAL_SWING, tropical_lat);
     let mut swing = match tile.water {
         Water::Ocean => zonal_swing * 300 / 1000,
         Water::Lake => zonal_swing * 600 / 1000,
@@ -765,7 +767,11 @@ fn profile(
     // monsoon in the outer tropics, winter rain where the westerlies come in
     // straight off the sea at 30-45° (Mediterranean climates), convective
     // summer rain inside continents.
-    let monsoon = interpolate(&MONSOON, abs_lat);
+    // Big landmasses drive strong monsoons (wet summer, dry winter: savanna);
+    // maritime tropics stay wet all year (rainforest).
+    let monsoon = interpolate(&MONSOON, tropical_lat)
+        * interpolate(&MONSOON_LAND, i64::from(tile.land_share))
+        / 1000;
     let windward = 1000 - (i64::from(tile.upwind_land) * 1000 / 8).min(1000);
     let mediterranean = -800 * windward / 1000 * interpolate(&MEDITERRANEAN, abs_lat) / 1000;
     let convective = 450 * cont / 1000 * interpolate(&CONVECTIVE, abs_lat) / 1000;
@@ -838,6 +844,9 @@ const CURRENT_STRENGTH: [(i64, i64); 6] = [
 /// the tropical rain belt follows the sun, so the outer tropics get a wet
 /// summer and a dry winter; at the equator it passes twice a year.
 const MONSOON: [(i64, i64); 4] = [(0, 0), (100, 500), (220, 650), (300, 0)];
+
+/// Monsoon strength by the share of land around a tile (per mille).
+const MONSOON_LAND: [(i64, i64); 4] = [(0, 150), (300, 400), (600, 1000), (850, 1400)];
 
 /// Where winter (Mediterranean) rain is possible, per mille, by |latitude|.
 const MEDITERRANEAN: [(i64, i64); 4] = [(250, 0), (330, 1000), (420, 1000), (480, 0)];

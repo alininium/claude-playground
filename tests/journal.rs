@@ -96,29 +96,40 @@ fn oscillation_episodes_escalate_without_repeating_levels() {
             ..OscillationConfig::default()
         }
     });
-    sim.run(20 * sim.config().turns_per_year());
-    let phases: Vec<(i64, Severity)> = sim
+    // The journal judges the index at each season boundary; follow along
+    // and split the run into episodes the same way (a new one whenever the
+    // index changes sign).
+    let season = u64::from(sim.config().climate.days_per_year) / 4 * 4;
+    let mut episode_of_turn = std::collections::HashMap::new();
+    let (mut episode, mut sign) = (0, 0);
+    for _ in 0..20 * 4 {
+        sim.run(season);
+        let s = sim.climate().oscillation().index_tenths().signum();
+        if s != sign {
+            episode += 1;
+            sign = s;
+        }
+        episode_of_turn.insert(sim.turn(), episode);
+    }
+    let phases: Vec<(i64, Severity, u32)> = sim
         .journal()
         .entries()
         .iter()
         .filter_map(|e| match e.happening {
             Happening::WarmPhase { index } | Happening::ColdPhase { index } => {
-                Some((index.signum(), e.severity))
+                Some((index.signum(), e.severity, episode_of_turn[&e.turn]))
             }
             _ => None,
         })
         .collect();
     assert!(
-        phases.iter().any(|&(_, s)| s >= Severity::Severe),
+        phases.iter().any(|&(_, s, _)| s >= Severity::Severe),
         "no severe phase in {phases:?}"
     );
-    // Within an episode (same sign, consecutive entries) levels only rise.
+    // Within an episode, each entry is a new, higher level.
     for pair in phases.windows(2) {
-        if pair[0].0 == pair[1].0 {
-            assert!(
-                pair[1].1 > pair[0].1 || pair[1].1 == Severity::Minor,
-                "{phases:?}"
-            );
+        if pair[0].2 == pair[1].2 {
+            assert!(pair[1].1 > pair[0].1, "{phases:?}");
         }
     }
     assert!(phases.iter().any(|p| p.0 > 0) && phases.iter().any(|p| p.0 < 0));
