@@ -29,6 +29,7 @@
 
 pub mod cryosphere;
 pub mod oscillation;
+pub mod stats;
 pub mod trig;
 
 use std::cmp::Reverse;
@@ -43,6 +44,7 @@ use crate::rng::SimRng;
 use crate::time::{Date, TURNS_PER_DAY, TimeOfDay, Turn};
 use cryosphere::Cryosphere;
 use oscillation::{Drift, Oscillation, OscillationConfig};
+use stats::{ClimateNormal, YearStats};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClimateConfig {
@@ -105,11 +107,9 @@ pub struct Climate {
     oscillation: Oscillation,
     drift: Drift,
     cryosphere: Cryosphere,
-    /// Growing degree-days (above 5 °C) so far this year, in tenths of a
-    /// degree times quarter-days.
-    growing: Vec<u32>,
-    /// Growing degree-days of the last full year, °C·days.
-    growing_last_year: Vec<u32>,
+    /// Current precipitation rate of every tile, mm per year.
+    precipitation: Vec<u16>,
+    stats: YearStats,
 }
 
 impl Climate {
@@ -147,8 +147,12 @@ impl Climate {
             oscillation,
             drift,
             cryosphere: Cryosphere::new(n),
-            growing: vec![0; n],
-            growing_last_year: vec![0; n],
+            precipitation: map
+                .tiles()
+                .iter()
+                .map(|t| annual_precipitation_mm(t.moisture))
+                .collect(),
+            stats: YearStats::new(n),
         };
         climate.spin_up(map, config);
         climate.update_temperatures(0);
@@ -175,10 +179,17 @@ impl Climate {
                 self.cryosphere.step(
                     map,
                     &self.temperature,
+                    &self.precipitation,
                     TURNS_PER_DAY as u32,
                     self.days_per_year,
                 );
-                self.accumulate_growth(TURNS_PER_DAY as u32);
+                let season = (day * 4 / self.days_per_year) as usize;
+                self.stats.accumulate(
+                    &self.temperature,
+                    &self.precipitation,
+                    TURNS_PER_DAY as u32,
+                    season,
+                );
                 // No flow before seeding: the surplus must be snowfall alone.
                 if year >= 2 {
                     self.cryosphere.flow_glaciers(map);
@@ -207,18 +218,9 @@ impl Climate {
             .collect()
     }
 
-    fn accumulate_growth(&mut self, quarters: u32) {
-        for (g, &t) in self.growing.iter_mut().zip(&self.temperature) {
-            *g += (i32::from(t) - 50).max(0) as u32 * quarters;
-        }
-    }
-
     fn end_year(&mut self) {
         self.cryosphere.end_year();
-        for (last, g) in self.growing_last_year.iter_mut().zip(&mut self.growing) {
-            *last = *g / 40;
-            *g = 0;
-        }
+        self.stats.end_year(self.days_per_year);
     }
 
     pub fn cryosphere(&self) -> &Cryosphere {
@@ -227,7 +229,30 @@ impl Climate {
 
     /// Growing degree-days (base 5 °C) of the last full year, °C·days.
     pub fn growing_degree_days(&self, index: usize) -> u32 {
-        self.growing_last_year[index]
+        self.stats.growing_last_year[index]
+    }
+
+    /// The tile's long-term climate (about a 10-year moving average).
+    pub fn normal(&self, index: usize) -> &ClimateNormal {
+        &self.stats.normals[index]
+    }
+
+    /// Current precipitation rate, mm per year.
+    pub fn precipitation(&self, index: usize) -> u16 {
+        self.precipitation[index]
+    }
+
+    pub fn precipitations(&self) -> &[u16] {
+        &self.precipitation
+    }
+
+    /// Mean temperature of the warmest and the coldest month, tenths °C,
+    /// from the long-term mean and the tile's seasonal swing.
+    pub fn warmest_and_coldest_month(&self, index: usize) -> (i64, i64) {
+        let mean = self.stats.normals[index].mean_tenths();
+        // A month-long average of a cosine peak: amplitude × sinc(π/12) ≈ 0.989.
+        let swing = i64::from(self.profiles[index].seasonal_amplitude).abs() * 989 / 1000;
+        (mean + swing, mean - swing)
     }
 
     pub fn temperature(&self, index: usize) -> i16 {
@@ -301,10 +326,19 @@ impl Climate {
                 write(u64::from(v));
             }
         }
-        for (&g, &last) in self.growing.iter().zip(&self.growing_last_year) {
-            write(u64::from(g) << 32 | u64::from(last));
+        for &p in &self.precipitation {
+            write(u64::from(p));
         }
+        self.stats.digest(write);
     }
+}
+
+/// Long-term mean precipitation for a moisture index (0-1000), mm per year.
+/// Quadratic, like Earth's skewed rainfall distribution: moisture 1000 gives
+/// 2000 mm (rainforest), 500 gives 500 mm, 200 gives 80 mm (desert).
+pub fn annual_precipitation_mm(moisture: u16) -> u16 {
+    let m = u32::from(moisture.min(1000));
+    (m * m * 2 / 1000) as u16
 }
 
 /// Runs every turn: advances the global oscillations at the start of each
@@ -325,10 +359,19 @@ pub fn update_climate(
     }
     climate.update_temperatures(turn.0);
     let climate = &mut *climate;
-    climate
-        .cryosphere
-        .step(&map, &climate.temperature, 1, climate.days_per_year);
-    climate.accumulate_growth(1);
+    climate.cryosphere.step(
+        &map,
+        &climate.temperature,
+        &climate.precipitation,
+        1,
+        climate.days_per_year,
+    );
+    climate.stats.accumulate(
+        &climate.temperature,
+        &climate.precipitation,
+        1,
+        date.season as usize,
+    );
     if date.time_of_day == TimeOfDay::Night {
         climate.cryosphere.flow_glaciers(&map);
     }

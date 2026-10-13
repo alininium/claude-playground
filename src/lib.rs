@@ -10,6 +10,7 @@
 //! - No floating point in simulation state; use integer / fixed-point math.
 //! - No wall-clock time, no `HashMap` iteration with random hashers.
 
+pub mod biome;
 pub mod city;
 pub mod climate;
 pub mod config;
@@ -23,6 +24,7 @@ pub mod time;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::SingleThreadedExecutor;
 
+use biome::Biomes;
 use city::{City, CityId, Population};
 use climate::Climate;
 use config::SimConfig;
@@ -58,11 +60,13 @@ impl Simulation {
             &mut rng,
         );
         let climate = Climate::new(&map, &config.climate, &mut rng);
-        let fertility = Fertility::new(&map, &climate, &mut rng);
+        let biomes = Biomes::new(&map, &climate, &config);
+        let fertility = Fertility::new(&map, &climate, &biomes, &mut rng);
         world.insert_resource(EventLog::default());
         city::found_initial_cities(&mut world, &config, &map, &climate, &fertility, &mut rng);
         world.insert_resource(map);
         world.insert_resource(climate);
+        world.insert_resource(biomes);
         world.insert_resource(fertility);
         world.insert_resource(rng);
         world.insert_resource(Turn::default());
@@ -74,6 +78,7 @@ impl Simulation {
             (
                 time::advance_turn,
                 climate::update_climate,
+                biome::update_biomes,
                 fertility::update_fertility,
                 city::grow_cities,
             )
@@ -111,6 +116,10 @@ impl Simulation {
 
     pub fn climate(&self) -> &Climate {
         self.world.resource::<Climate>()
+    }
+
+    pub fn biomes(&self) -> &Biomes {
+        self.world.resource::<Biomes>()
     }
 
     pub fn fertility(&self) -> &Fertility {
@@ -155,12 +164,15 @@ impl Simulation {
         for tile in self.map().tiles() {
             h.write_u64(tile.altitude as u64);
             h.write_u64(tile.surface as u64);
-            h.write(&[tile.biome as u8, tile.water as u8]);
+            h.write(&[tile.landform as u8, tile.soil as u8, tile.water as u8]);
             h.write_u64(u64::from(tile.moisture));
             h.write_u64(u64::from(tile.flow));
             h.write_u64(tile.downstream.map_or(u64::MAX, u64::from));
         }
         self.climate().digest(&mut |v| h.write_u64(v));
+        for &b in self.biomes().all() {
+            h.write(&[b as u8]);
+        }
         for &f in self.fertility().values() {
             h.write(&f.to_le_bytes());
         }
@@ -186,7 +198,7 @@ impl Simulation {
     /// Renders the map and cities as ASCII. See [`render::ascii`].
     pub fn render_map(&mut self) -> String {
         let cities = self.cities();
-        render::ascii(self.map(), self.climate(), &cities)
+        render::ascii(self.map(), self.climate(), self.biomes(), &cities)
     }
 }
 

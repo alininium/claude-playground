@@ -1,5 +1,5 @@
 use societies::climate::{Climate, ClimateConfig};
-use societies::map::{Biome, Map, TerrainConfig, Water};
+use societies::map::{Landform, Map, Soil, TerrainConfig, Water};
 use societies::rng::SimRng;
 
 fn world(seed: u64) -> (Map, Climate) {
@@ -38,12 +38,12 @@ fn mountains_are_colder_than_lowlands_at_the_same_latitude() {
     let mean = |i: usize| i64::from(climate.profile(i).mean);
     let mountains = avg(
         &map,
-        |i| band(i) && map.tiles()[i].biome == Biome::Mountains,
+        |i| band(i) && map.tiles()[i].landform == Landform::Mountains,
         mean,
     );
     let lowland = avg(
         &map,
-        |i| band(i) && map.tiles()[i].biome == Biome::Earth && map.tiles()[i].altitude < 300,
+        |i| band(i) && map.tiles()[i].landform == Landform::Plains && map.tiles()[i].altitude < 300,
         mean,
     );
     assert!(mountains < lowland - 50, "{mountains} vs {lowland}");
@@ -75,7 +75,7 @@ fn deserts_swing_more_between_day_and_night_than_the_sea() {
     let range = |i: usize| i64::from(climate.profile(i).diurnal_range);
     let desert = avg(
         &map,
-        |i| map.tiles()[i].biome == Biome::Sand && map.tiles()[i].moisture < 200,
+        |i| map.tiles()[i].soil == Soil::Sandy && map.tiles()[i].moisture < 200,
         range,
     );
     let sea = avg(&map, |i| map.tiles()[i].water == Water::Ocean, range);

@@ -228,15 +228,20 @@ fn accumulate_rivers(map: &mut Map, config: &TerrainConfig, order: &[usize]) {
             target.flow = target.flow.saturating_add(flow);
         }
     }
-    // Catchment is specified for a 256x128 map; scale it with map area so
-    // river density looks the same at every size.
-    let area_scale = u64::from(map.tile_count()).max(1);
-    let catchment = (u64::from(config.river_catchment) * area_scale / (256 * 128)).max(4);
-    let threshold = u32::try_from(catchment * 1000).unwrap_or(u32::MAX);
+    let threshold = river_threshold(map, config);
     for &i in order {
         let tile = &mut map.tiles[i];
         if tile.water == Water::Dry && tile.flow >= threshold {
             tile.water = Water::River;
         }
     }
+}
+
+/// Flow at which a tile becomes a river. Catchment is specified for a
+/// 256x128 map and scaled with map area, so river density looks the same at
+/// every size.
+pub(crate) fn river_threshold(map: &Map, config: &TerrainConfig) -> u32 {
+    let area_scale = u64::from(map.tile_count()).max(1);
+    let catchment = (u64::from(config.river_catchment) * area_scale / (256 * 128)).max(4);
+    u32::try_from(catchment * 1000).unwrap_or(u32::MAX)
 }

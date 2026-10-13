@@ -128,11 +128,24 @@ impl Cryosphere {
     }
 
     /// Advances every tile by `quarters` quarter-days at the given
-    /// temperatures (tenths °C).
-    pub fn step(&mut self, map: &Map, temperatures: &[i16], quarters: u32, days_per_year: u32) {
+    /// temperatures (tenths °C) and precipitation rates (mm per year).
+    pub fn step(
+        &mut self,
+        map: &Map,
+        temperatures: &[i16],
+        precipitation: &[u16],
+        quarters: u32,
+        days_per_year: u32,
+    ) {
         let q = i64::from(quarters);
         let per_year = i64::from(days_per_year.max(1)) * 4;
-        for ((f, tile), &temp) in self.tiles.iter_mut().zip(map.tiles()).zip(temperatures) {
+        for (((f, tile), &temp), &rate) in self
+            .tiles
+            .iter_mut()
+            .zip(map.tiles())
+            .zip(temperatures)
+            .zip(precipitation)
+        {
             let t = i64::from(temp);
             match tile.water {
                 Water::Ocean => water_ice(&mut f.ice, t, SEA_FREEZING_POINT, q, 700),
@@ -141,8 +154,8 @@ impl Cryosphere {
                     if tile.water == Water::River {
                         water_ice(&mut f.ice, t, 0, q, 800);
                     }
-                    // Precipitation: moisture 1000 ≈ 2000 mm a year.
-                    let precipitation = i64::from(tile.moisture) * 20 * q / per_year;
+                    // mm per year → tenths of a millimeter in this step.
+                    let precipitation = i64::from(rate) * 10 * q / per_year;
                     land(f, t, q, precipitation);
                 }
             }

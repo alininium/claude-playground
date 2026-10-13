@@ -98,6 +98,7 @@ fn main() {
             render::png(
                 sim.map(),
                 sim.climate(),
+                sim.biomes(),
                 &cities,
                 3,
                 &out.join(format!("relief_{label}.png")),

@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use societies::Simulation;
+use societies::biome::Biome;
 use societies::climate::cryosphere::Cover;
 use societies::config::SimConfig;
 use societies::events::SimEvent;
-use societies::map::{Biome, Water};
+use societies::map::{Landform, Water};
 use societies::render;
 use societies::time::{TURNS_PER_DAY, TimeOfDay};
 
@@ -85,6 +86,7 @@ fn main() -> ExitCode {
     );
     let mut sim = Simulation::new(config);
     print_map_summary(&sim);
+    print_biome_summary(&sim);
     print_fertility_summary(&sim);
     print_frozen_summary(&sim);
     if !quiet {
@@ -114,6 +116,7 @@ fn main() -> ExitCode {
             }
         }
         println!("\nturn {} ({}):", sim.turn(), sim.date());
+        println!("{}", render::ASCII_LEGEND);
         println!("{}\n", sim.render_map());
     }
 
@@ -122,7 +125,7 @@ fn main() -> ExitCode {
         for c in &cities {
             let tile = sim.map().tile(c.position);
             println!(
-                "#{:<3} {:<12} ({:>3},{:>3})  pop {:>6}  founded turn {:<5}  {:>5.1}°C  {:?}{} {}m",
+                "#{:<3} {:<12} ({:>3},{:>3})  pop {:>6}  founded turn {:<5}  {:>5.1}°C  {:?} {:?}{} {}m",
                 c.id.0,
                 c.name,
                 c.position.x,
@@ -130,7 +133,8 @@ fn main() -> ExitCode {
                 c.population,
                 c.founded_on,
                 f64::from(sim.climate().temperature(sim.map().index(c.position))) / 10.0,
-                tile.biome,
+                tile.landform,
+                sim.biomes().biome(sim.map().index(c.position)),
                 if tile.water == Water::River {
                     " + river"
                 } else {
@@ -144,7 +148,14 @@ fn main() -> ExitCode {
     println!("\n{} cities, total population {total}", cities.len());
 
     if let Some(path) = png {
-        if let Err(e) = render::png(sim.map(), sim.climate(), &cities, scale, &path) {
+        if let Err(e) = render::png(
+            sim.map(),
+            sim.climate(),
+            sim.biomes(),
+            &cities,
+            scale,
+            &path,
+        ) {
             eprintln!("failed to write {}: {e}", path.display());
             return ExitCode::FAILURE;
         }
@@ -175,22 +186,48 @@ fn main() -> ExitCode {
 fn print_map_summary(sim: &Simulation) {
     let tiles = sim.map().tiles();
     let pct = |n: usize| n as f64 * 100.0 / tiles.len() as f64;
-    let count = |b: Biome| tiles.iter().filter(|t| t.biome == b).count();
+    let count = |l: Landform| tiles.iter().filter(|t| t.landform == l).count();
     let water = |w: Water| tiles.iter().filter(|t| t.water == w).count();
     let highest = tiles.iter().map(|t| t.altitude).max().unwrap_or(0);
     let deepest = tiles.iter().map(|t| t.altitude).min().unwrap_or(0);
     println!(
-        "terrain: water {:.1}% (ocean {:.1}%, lakes {:.1}%), earth {:.1}%, sand {:.1}%, \
+        "terrain: water {:.1}% (ocean {:.1}%, lakes {:.1}%), plains {:.1}%, \
 hills {:.1}%, mountains {:.1}%; rivers {:.1}%; altitude {deepest}m..{highest}m",
-        pct(count(Biome::Water)),
+        pct(count(Landform::Water)),
         pct(water(Water::Ocean)),
         pct(water(Water::Lake)),
-        pct(count(Biome::Earth)),
-        pct(count(Biome::Sand)),
-        pct(count(Biome::Hills)),
-        pct(count(Biome::Mountains)),
+        pct(count(Landform::Plains)),
+        pct(count(Landform::Hills)),
+        pct(count(Landform::Mountains)),
         pct(water(Water::River)),
     );
+}
+
+fn print_biome_summary(sim: &Simulation) {
+    let map = sim.map();
+    let land: Vec<usize> = (0..map.tile_count() as usize)
+        .filter(|&i| matches!(map.tiles()[i].water, Water::Dry | Water::River))
+        .collect();
+    let area = |i: usize| map.area_weight(map.position_of(i as u32).y) as f64;
+    let total: f64 = land.iter().map(|&i| area(i)).sum::<f64>().max(1.0);
+    let mut shares: Vec<(Biome, f64)> = Biome::ALL
+        .iter()
+        .map(|&b| {
+            let a: f64 = land
+                .iter()
+                .filter(|&&i| sim.biomes().biome(i) == b)
+                .map(|&i| area(i))
+                .sum();
+            (b, a * 100.0 / total)
+        })
+        .filter(|&(_, share)| share > 0.0)
+        .collect();
+    shares.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let list: Vec<String> = shares
+        .iter()
+        .map(|(b, s)| format!("{b:?} {s:.1}%"))
+        .collect();
+    println!("biomes (share of land area): {}", list.join(", "));
 }
 
 fn print_climate_report(sim: &Simulation) {
