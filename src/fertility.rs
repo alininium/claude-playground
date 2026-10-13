@@ -18,7 +18,9 @@
 //!   draining.
 //!
 //! Permafrost cuts fertility to tundra levels; glaciers, open water and
-//! frozen-over land are barren. Recomputed at the start of every year.
+//! frozen-over land are barren. Volcanic soils near volcanoes get a
+//! permanent bonus; fresh ash fall cuts fertility until it weathers away
+//! (see [`crate::volcano`]). Recomputed at the start of every year.
 
 use bevy_ecs::prelude::{Res, ResMut, Resource};
 
@@ -29,6 +31,7 @@ use crate::map::noise::{Noise, ONE};
 use crate::map::{Landform, Map, Soil, Water};
 use crate::rng::SimRng;
 use crate::time::Turn;
+use crate::volcano::Volcanism;
 
 #[derive(Resource, Debug, Clone)]
 pub struct Fertility {
@@ -37,16 +40,25 @@ pub struct Fertility {
 }
 
 impl Fertility {
-    pub fn new(map: &Map, climate: &Climate, biomes: &Biomes, rng: &mut SimRng) -> Self {
+    pub fn new(
+        map: &Map,
+        climate: &Climate,
+        biomes: &Biomes,
+        volcanism: &Volcanism,
+        rng: &mut SimRng,
+    ) -> Self {
         let variation = Noise::new(rng.next_u64());
         let soil = (0..map.tile_count() as usize)
-            .map(|i| soil_quality(map, i, &variation))
+            .map(|i| match soil_quality(map, i, &variation) {
+                0 => 0,
+                soil => (soil + volcanism.volcanic_soil(i)).min(1000),
+            })
             .collect();
         let mut fertility = Self {
             soil,
             fertility: vec![0; map.tile_count() as usize],
         };
-        fertility.recompute(map, climate, biomes);
+        fertility.recompute(map, climate, biomes, volcanism);
         fertility
     }
 
@@ -64,9 +76,16 @@ impl Fertility {
         self.soil[index]
     }
 
-    pub fn recompute(&mut self, map: &Map, climate: &Climate, biomes: &Biomes) {
+    pub fn recompute(
+        &mut self,
+        map: &Map,
+        climate: &Climate,
+        biomes: &Biomes,
+        volcanism: &Volcanism,
+    ) {
         for (i, f) in self.fertility.iter_mut().enumerate() {
-            *f = fertility(map, climate, biomes.biome(i), i, self.soil[i]);
+            let healthy = fertility(map, climate, biomes.biome(i), i, self.soil[i]);
+            *f = (u32::from(healthy) * (1000 - u32::from(volcanism.ash(i))) / 1000) as u16;
         }
     }
 }
@@ -77,10 +96,11 @@ pub fn update_fertility(
     map: Res<Map>,
     climate: Res<Climate>,
     biomes: Res<Biomes>,
+    volcanism: Res<Volcanism>,
     mut fertility: ResMut<Fertility>,
 ) {
     if climate::is_new_year(turn.0, climate.days_per_year()) {
-        fertility.recompute(&map, &climate, &biomes);
+        fertility.recompute(&map, &climate, &biomes, &volcanism);
     }
 }
 

@@ -20,6 +20,7 @@ pub mod map;
 pub mod render;
 pub mod rng;
 pub mod time;
+pub mod volcano;
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::SingleThreadedExecutor;
@@ -33,6 +34,7 @@ use fertility::Fertility;
 use map::{Map, Position};
 use rng::SimRng;
 use time::{Date, Turn};
+use volcano::Volcanism;
 
 pub struct Simulation {
     world: World,
@@ -60,14 +62,16 @@ impl Simulation {
             &mut rng,
         );
         let climate = Climate::new(&map, &config.climate, &mut rng);
+        let volcanism = volcano::place_volcanoes(&mut world, &config, &map, &mut rng);
         let biomes = Biomes::new(&map, &climate, &config);
-        let fertility = Fertility::new(&map, &climate, &biomes, &mut rng);
+        let fertility = Fertility::new(&map, &climate, &biomes, &volcanism, &mut rng);
         world.insert_resource(EventLog::default());
         city::found_initial_cities(&mut world, &config, &map, &climate, &fertility, &mut rng);
         world.insert_resource(map);
         world.insert_resource(climate);
         world.insert_resource(biomes);
         world.insert_resource(fertility);
+        world.insert_resource(volcanism);
         world.insert_resource(rng);
         world.insert_resource(Turn::default());
         world.insert_resource(config);
@@ -77,6 +81,7 @@ impl Simulation {
         schedule.add_systems(
             (
                 time::advance_turn,
+                volcano::volcanic_activity,
                 climate::update_climate,
                 biome::update_biomes,
                 fertility::update_fertility,
@@ -126,6 +131,21 @@ impl Simulation {
         self.world.resource::<Fertility>()
     }
 
+    pub fn volcanism(&self) -> &Volcanism {
+        self.world.resource::<Volcanism>()
+    }
+
+    /// All volcanoes, ordered by id.
+    pub fn volcanoes(&mut self) -> Vec<(volcano::Volcano, Position)> {
+        let mut query = self.world.query::<(&volcano::Volcano, &Position)>();
+        let mut list: Vec<_> = query
+            .iter(&self.world)
+            .map(|(v, p)| (v.clone(), *p))
+            .collect();
+        list.sort_by_key(|(v, _)| v.id);
+        list
+    }
+
     pub fn map(&self) -> &Map {
         self.world.resource::<Map>()
     }
@@ -173,6 +193,12 @@ impl Simulation {
         for &b in self.biomes().all() {
             h.write(&[b as u8]);
         }
+        self.volcanism().digest(&mut |v| h.write_u64(v));
+        for (v, p) in self.volcanoes() {
+            h.write_u64(u64::from(v.id.0) << 32 | u64::from(p.x) << 16 | u64::from(p.y));
+            h.write_u64(v.magma);
+            h.write_u64(v.last_eruption.unwrap_or(u64::MAX));
+        }
         for &f in self.fertility().values() {
             h.write(&f.to_le_bytes());
         }
@@ -198,7 +224,14 @@ impl Simulation {
     /// Renders the map and cities as ASCII. See [`render::ascii`].
     pub fn render_map(&mut self) -> String {
         let cities = self.cities();
-        render::ascii(self.map(), self.climate(), self.biomes(), &cities)
+        let volcanoes: Vec<Position> = self.volcanoes().into_iter().map(|(_, p)| p).collect();
+        render::ascii(
+            self.map(),
+            self.climate(),
+            self.biomes(),
+            &volcanoes,
+            &cities,
+        )
     }
 }
 

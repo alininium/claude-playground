@@ -5,6 +5,7 @@ use bevy_ecs::prelude::Resource;
 
 use crate::climate::ClimateConfig;
 use crate::map::TerrainConfig;
+use crate::volcano::VolcanoConfig;
 
 #[derive(Resource, Debug, Clone, PartialEq, Eq)]
 pub struct SimConfig {
@@ -14,6 +15,7 @@ pub struct SimConfig {
     pub map_height: u32,
     pub terrain: TerrainConfig,
     pub climate: ClimateConfig,
+    pub volcanoes: VolcanoConfig,
     /// Cities placed at world creation (none are founded later).
     pub initial_cities: u32,
     /// Minimum distance between cities, in tiles (Chebyshev).
@@ -40,6 +42,7 @@ impl Default for SimConfig {
             map_height: 64,
             terrain: TerrainConfig::default(),
             climate: ClimateConfig::default(),
+            volcanoes: VolcanoConfig::default(),
             initial_cities: 24,
             min_city_distance: 4,
             initial_city_population: 10,

@@ -137,7 +137,7 @@ pub fn found_initial_cities(
     }
 }
 
-fn generate_name(rng: &mut SimRng) -> String {
+pub(crate) fn generate_name(rng: &mut SimRng) -> String {
     const SYLLABLES: &[&str] = &[
         "ka", "ri", "to", "mel", "an", "dor", "su", "vel", "ith", "ra", "gon", "ben", "ul", "sha",
         "tor", "es", "lin", "mar", "or", "zan",

@@ -95,10 +95,12 @@ fn main() {
         if turn == snapshot_day * 4 + 1 || turn == years * tpy + snapshot_day * 4 + 1 {
             let label = if turn < tpy { "year1" } else { "year51" };
             let cities = sim.cities();
+            let volcanoes: Vec<_> = sim.volcanoes().into_iter().map(|(_, p)| p).collect();
             render::png(
                 sim.map(),
                 sim.climate(),
                 sim.biomes(),
+                &volcanoes,
                 &cities,
                 3,
                 &out.join(format!("relief_{label}.png")),

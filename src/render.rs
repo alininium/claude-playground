@@ -9,10 +9,16 @@ use crate::biome::{Biome, Biomes};
 use crate::climate::Climate;
 use crate::climate::cryosphere::Cover;
 use crate::fertility::Fertility;
-use crate::map::{Landform, Map, Water};
+use crate::map::{Landform, Map, Position, Water};
 
 /// One character per tile; see [`ASCII_LEGEND`].
-pub fn ascii(map: &Map, climate: &Climate, biomes: &Biomes, cities: &[CitySnapshot]) -> String {
+pub fn ascii(
+    map: &Map,
+    climate: &Climate,
+    biomes: &Biomes,
+    volcanoes: &[Position],
+    cities: &[CitySnapshot],
+) -> String {
     let w = map.width() as usize;
     let mut grid: Vec<char> = map
         .tiles()
@@ -26,6 +32,9 @@ pub fn ascii(map: &Map, climate: &Climate, biomes: &Biomes, cities: &[CitySnapsh
             _ => biome_glyph(biomes.biome(i)),
         })
         .collect();
+    for &v in volcanoes {
+        grid[map.index(v)] = 'V';
+    }
     for c in cities {
         grid[map.index(c.position)] = city_glyph(c.population);
     }
@@ -39,7 +48,7 @@ pub fn ascii(map: &Map, climate: &Climate, biomes: &Biomes, cities: &[CitySnapsh
 pub const ASCII_LEGEND: &str = "~ ocean  - lake  # ice  * snow  = river  ^ mountains  \
 , tundra  a alpine  b boreal forest  f temperate forest  F temperate rainforest  \
 \" grassland  m mediterranean shrubland  : hot desert  ; cold desert  v savanna  \
-t tropical seasonal forest  R tropical rainforest  w wetland  o/O/@ city";
+t tropical seasonal forest  R tropical rainforest  w wetland  V volcano  o/O/@ city";
 
 fn biome_glyph(biome: Biome) -> char {
     match biome {
@@ -98,6 +107,7 @@ pub fn png(
     map: &Map,
     climate: &Climate,
     biomes: &Biomes,
+    volcanoes: &[Position],
     cities: &[CitySnapshot],
     scale: u32,
     path: &Path,
@@ -105,6 +115,9 @@ pub fn png(
     let mut tile_rgb: Vec<[u8; 3]> = (0..map.tile_count() as usize)
         .map(|i| tile_color(map, climate, biomes, i))
         .collect();
+    for &v in volcanoes {
+        tile_rgb[map.index(v)] = [90, 20, 10];
+    }
     for c in cities {
         tile_rgb[map.index(c.position)] = [200, 30, 30];
     }

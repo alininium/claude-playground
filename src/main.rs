@@ -86,6 +86,7 @@ fn main() -> ExitCode {
     );
     let mut sim = Simulation::new(config);
     print_map_summary(&sim);
+    print_volcano_summary(&mut sim);
     print_biome_summary(&sim);
     print_fertility_summary(&sim);
     print_frozen_summary(&sim);
@@ -113,6 +114,27 @@ fn main() -> ExitCode {
                     "turn {turn:>4}: city #{} {name} founded at ({}, {})",
                     id.0, position.x, position.y
                 ),
+                SimEvent::Eruption {
+                    turn,
+                    name,
+                    position,
+                    vei,
+                    cause,
+                    repose_years,
+                    casualties,
+                    ..
+                } => {
+                    let date =
+                        societies::time::Date::from_turn(*turn, sim.config().climate.days_per_year);
+                    let repose = repose_years.map_or("first recorded eruption".into(), |y| {
+                        format!("quiet for {y} years")
+                    });
+                    println!(
+                        "turn {turn:>4} ({date}): VEI {vei} eruption of {name} at ({}, {}); \
+{cause}; {repose}; {casualties} dead",
+                        position.x, position.y
+                    );
+                }
             }
         }
         println!("\nturn {} ({}):", sim.turn(), sim.date());
@@ -148,10 +170,12 @@ fn main() -> ExitCode {
     println!("\n{} cities, total population {total}", cities.len());
 
     if let Some(path) = png {
+        let volcanoes: Vec<_> = sim.volcanoes().into_iter().map(|(_, p)| p).collect();
         if let Err(e) = render::png(
             sim.map(),
             sim.climate(),
             sim.biomes(),
+            &volcanoes,
             &cities,
             scale,
             &path,
@@ -301,5 +325,17 @@ fn print_fertility_summary(sim: &Simulation) {
         pct(100, 300),
         pct(300, 600),
         pct(600, 1001),
+    );
+}
+
+fn print_volcano_summary(sim: &mut Simulation) {
+    let volcanoes = sim.volcanoes();
+    let count =
+        |k: societies::volcano::VolcanoKind| volcanoes.iter().filter(|(v, _)| v.kind == k).count();
+    println!(
+        "volcanoes: {} ({} subduction arc, {} hotspot)",
+        volcanoes.len(),
+        count(societies::volcano::VolcanoKind::Arc),
+        count(societies::volcano::VolcanoKind::Hotspot),
     );
 }
