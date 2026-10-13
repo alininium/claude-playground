@@ -144,3 +144,45 @@ fn seasons_and_days_change_temperatures() {
     assert!(summer_day > summer_night, "{summer_day} vs {summer_night}");
     assert!(summer_day > winter_day + 50, "{summer_day} vs {winter_day}");
 }
+
+#[test]
+fn event_log_records_every_city_founding_exactly_once() {
+    use societies::events::SimEvent;
+    let mut sim = Simulation::new(config(13));
+    let cities = sim.cities();
+    let founded: Vec<_> = sim
+        .events()
+        .events()
+        .iter()
+        .filter_map(|e| match e {
+            SimEvent::CityFounded {
+                turn,
+                id,
+                name,
+                position,
+            } => Some((*turn, *id, name.clone(), *position)),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        })
+        .collect();
+    let expected: Vec<_> = cities
+        .iter()
+        .map(|c| (0, c.id, c.name.clone(), c.position))
+        .collect();
+    assert_eq!(
+        founded, expected,
+        "one founding event per city, in id order"
+    );
+
+    // Playing on never founds (or logs) another city, and the log is append-only.
+    let before = sim.events().events().to_vec();
+    sim.run(sim.config().turns_per_year());
+    let after = sim.events().events();
+    assert_eq!(&after[..before.len()], &before[..], "history was rewritten");
+    assert!(
+        after[before.len()..]
+            .iter()
+            .all(|e| !matches!(e, SimEvent::CityFounded { .. })),
+        "a city was founded during play"
+    );
+}
