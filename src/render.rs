@@ -5,15 +5,20 @@ use std::io;
 use std::path::Path;
 
 use crate::CitySnapshot;
+use crate::biome::{Biome, Biomes};
 use crate::climate::Climate;
 use crate::climate::cryosphere::Cover;
 use crate::fertility::Fertility;
-use crate::map::{Biome, Map, Water};
+use crate::map::{Landform, Map, Position, Water};
 
-/// `~` water, `.` earth, `:` sand, `n` hills, `^` mountains, `=` river,
-/// `#` glacier or ice-covered water, `*` snow-covered land,
-/// `o`/`O`/`@` cities by size.
-pub fn ascii(map: &Map, climate: &Climate, cities: &[CitySnapshot]) -> String {
+/// One character per tile; see [`ASCII_LEGEND`].
+pub fn ascii(
+    map: &Map,
+    climate: &Climate,
+    biomes: &Biomes,
+    volcanoes: &[Position],
+    cities: &[CitySnapshot],
+) -> String {
     let w = map.width() as usize;
     let mut grid: Vec<char> = map
         .tiles()
@@ -22,16 +27,14 @@ pub fn ascii(map: &Map, climate: &Climate, cities: &[CitySnapshot]) -> String {
         .map(|(i, t)| match climate.cryosphere().cover(map, i) {
             Cover::Glacier | Cover::SeaIce | Cover::LakeIce => '#',
             Cover::Snow => '*',
-            _ => match (t.biome, t.water) {
-                (Biome::Water, _) => '~',
-                (_, Water::River) => '=',
-                (Biome::Earth, _) => '.',
-                (Biome::Sand, _) => ':',
-                (Biome::Hills, _) => 'n',
-                (Biome::Mountains, _) => '^',
-            },
+            _ if t.water == Water::River && biomes.biome(i) != Biome::Wetland => '=',
+            _ if t.landform == Landform::Mountains => '^',
+            _ => biome_glyph(biomes.biome(i)),
         })
         .collect();
+    for &v in volcanoes {
+        grid[map.index(v)] = 'V';
+    }
     for c in cities {
         grid[map.index(c.position)] = city_glyph(c.population);
     }
@@ -39,6 +42,55 @@ pub fn ascii(map: &Map, climate: &Climate, cities: &[CitySnapshot]) -> String {
         .map(|row| row.iter().collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// What the ASCII map's characters mean.
+pub const ASCII_LEGEND: &str = "~ ocean  - lake  # ice  * snow  = river  ^ mountains  \
+, tundra  a alpine  b boreal forest  f temperate forest  F temperate rainforest  \
+\" grassland  m mediterranean shrubland  : hot desert  ; cold desert  v savanna  \
+t tropical seasonal forest  R tropical rainforest  w wetland  V volcano  o/O/@ city";
+
+fn biome_glyph(biome: Biome) -> char {
+    match biome {
+        Biome::Ocean => '~',
+        Biome::Lake => '-',
+        Biome::IceSheet => '#',
+        Biome::Tundra => ',',
+        Biome::Alpine => 'a',
+        Biome::BorealForest => 'b',
+        Biome::TemperateForest => 'f',
+        Biome::TemperateRainforest => 'F',
+        Biome::Grassland => '"',
+        Biome::MediterraneanShrubland => 'm',
+        Biome::HotDesert => ':',
+        Biome::ColdDesert => ';',
+        Biome::Savanna => 'v',
+        Biome::TropicalSeasonalForest => 't',
+        Biome::TropicalRainforest => 'R',
+        Biome::Wetland => 'w',
+    }
+}
+
+/// Map color of a biome.
+pub fn biome_color(biome: Biome) -> [u8; 3] {
+    match biome {
+        Biome::Ocean => [40, 80, 160],
+        Biome::Lake => [80, 150, 210],
+        Biome::IceSheet => [235, 242, 250],
+        Biome::Tundra => [160, 165, 135],
+        Biome::Alpine => [150, 145, 140],
+        Biome::BorealForest => [55, 100, 80],
+        Biome::TemperateForest => [70, 135, 60],
+        Biome::TemperateRainforest => [35, 110, 70],
+        Biome::Grassland => [175, 180, 95],
+        Biome::MediterraneanShrubland => [160, 150, 85],
+        Biome::HotDesert => [225, 200, 140],
+        Biome::ColdDesert => [190, 175, 145],
+        Biome::Savanna => [195, 175, 85],
+        Biome::TropicalSeasonalForest => [95, 145, 45],
+        Biome::TropicalRainforest => [25, 105, 40],
+        Biome::Wetland => [85, 135, 120],
+    }
 }
 
 fn city_glyph(population: u64) -> char {
@@ -54,13 +106,18 @@ fn city_glyph(population: u64) -> char {
 pub fn png(
     map: &Map,
     climate: &Climate,
+    biomes: &Biomes,
+    volcanoes: &[Position],
     cities: &[CitySnapshot],
     scale: u32,
     path: &Path,
 ) -> io::Result<()> {
     let mut tile_rgb: Vec<[u8; 3]> = (0..map.tile_count() as usize)
-        .map(|i| tile_color(map, climate, i))
+        .map(|i| tile_color(map, climate, biomes, i))
         .collect();
+    for &v in volcanoes {
+        tile_rgb[map.index(v)] = [90, 20, 10];
+    }
     for c in cities {
         tile_rgb[map.index(c.position)] = [200, 30, 30];
     }
@@ -142,7 +199,7 @@ pub fn fertility_png(map: &Map, fertility: &Fertility, scale: u32, path: &Path) 
     write_png(map, &colors, scale, path)
 }
 
-fn tile_color(map: &Map, climate: &Climate, i: usize) -> [u8; 3] {
+fn tile_color(map: &Map, climate: &Climate, biomes: &Biomes, i: usize) -> [u8; 3] {
     let tile = &map.tiles()[i];
     let alt = tile.altitude;
     let ice: Option<[i32; 3]> = match climate.cryosphere().cover(map, i) {
@@ -152,25 +209,25 @@ fn tile_color(map: &Map, climate: &Climate, i: usize) -> [u8; 3] {
         Cover::Snow => Some([245, 247, 250]),
         _ => None,
     };
-    let base: [i32; 3] = ice.unwrap_or(match (tile.biome, tile.water) {
-        (_, Water::Ocean) => {
+    let biome = biomes.biome(i);
+    let base: [i32; 3] = ice.unwrap_or(match tile.water {
+        Water::Ocean => {
             let d = (-alt).clamp(0, 5000);
             [70 - d * 50 / 5000, 130 - d * 90 / 5000, 200 - d * 90 / 5000]
         }
-        (_, Water::Lake) => [80, 150, 210],
-        (_, Water::River) => [60, 120, 210],
-        (Biome::Earth, _) => [90 + alt.min(800) / 20, 150 - alt.min(800) / 20, 70],
-        (Biome::Sand, _) => [222, 200, 140],
-        (Biome::Hills, _) => [150, 140, 90],
-        (Biome::Mountains, _) => {
-            let t = (alt - 1500).clamp(0, 3000);
-            [
-                130 + t * 115 / 3000,
-                120 + t * 125 / 3000,
-                115 + t * 130 / 3000,
-            ]
+        Water::Lake => [80, 150, 210],
+        Water::River if biome != Biome::Wetland => [60, 120, 210],
+        _ => {
+            let c = biome_color(biome).map(i32::from);
+            // Bare rock shows through on high mountains.
+            let rock = if tile.landform == Landform::Mountains {
+                (alt - 1500).clamp(0, 2500) * 700 / 2500
+            } else {
+                0
+            };
+            let rock_color = [150, 140, 130];
+            [0, 1, 2].map(|k| c[k] + (rock_color[k] - c[k]) * rock / 1000)
         }
-        (Biome::Water, _) => [70, 130, 200],
     });
     // Hillshade: light from the north-west.
     let shade = if matches!(tile.water, Water::Ocean | Water::Lake) {

@@ -1,4 +1,4 @@
-use societies::map::{Biome, Map, TerrainConfig, Water};
+use societies::map::{Landform, Map, Soil, TerrainConfig, Water};
 use societies::rng::SimRng;
 
 fn generate(seed: u64, width: u32, height: u32) -> Map {
@@ -38,18 +38,29 @@ fn land_share_matches_config() {
 }
 
 #[test]
-fn all_five_biomes_appear() {
+fn all_landforms_and_soils_appear() {
     let map = generate(1, 256, 128);
-    for biome in [
-        Biome::Water,
-        Biome::Earth,
-        Biome::Sand,
-        Biome::Hills,
-        Biome::Mountains,
+    for landform in [
+        Landform::Water,
+        Landform::Plains,
+        Landform::Hills,
+        Landform::Mountains,
     ] {
         assert!(
-            map.tiles().iter().any(|t| t.biome == biome),
-            "missing {biome:?}"
+            map.tiles().iter().any(|t| t.landform == landform),
+            "missing {landform:?}"
+        );
+    }
+    for soil in [
+        Soil::None,
+        Soil::Loam,
+        Soil::Sandy,
+        Soil::Rocky,
+        Soil::Alluvial,
+    ] {
+        assert!(
+            map.tiles().iter().any(|t| t.soil == soil),
+            "missing {soil:?}"
         );
     }
     assert!(
@@ -60,14 +71,18 @@ fn all_five_biomes_appear() {
         map.tiles().iter().any(|t| t.water == Water::River),
         "no rivers"
     );
+    for t in map.tiles().iter().filter(|t| t.water == Water::River) {
+        assert_eq!(t.soil, Soil::Alluvial, "rivers deposit alluvium");
+    }
 }
 
 #[test]
-fn water_biome_iff_ocean_or_lake() {
+fn water_landform_iff_ocean_or_lake() {
     let map = generate(5, 128, 64);
     for t in map.tiles() {
         let standing = matches!(t.water, Water::Ocean | Water::Lake);
-        assert_eq!(t.biome == Biome::Water, standing, "{t:?}");
+        assert_eq!(t.landform == Landform::Water, standing, "{t:?}");
+        assert_eq!(t.soil == Soil::None, standing, "{t:?}");
         if t.water == Water::Ocean {
             assert!(t.altitude < 0);
         }

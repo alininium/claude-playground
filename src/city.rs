@@ -67,8 +67,11 @@ pub fn can_settle(map: &Map, climate: &Climate, index: usize) -> bool {
 /// founded during play. Sites are drawn with probability proportional to
 /// fertility (plus a small floor), and no two cities are closer than
 /// `min_city_distance` tiles. Fewer cities are placed if the land runs out.
+/// `turn` is the turn the world starts at (0 for a new world).
+#[allow(clippy::too_many_arguments)]
 pub fn found_initial_cities(
     world: &mut World,
+    turn: u64,
     config: &SimConfig,
     map: &Map,
     climate: &Climate,
@@ -120,7 +123,7 @@ pub fn found_initial_cities(
         world
             .resource_mut::<EventLog>()
             .push(SimEvent::CityFounded {
-                turn: 0,
+                turn,
                 id,
                 name: name.clone(),
                 position,
@@ -129,7 +132,7 @@ pub fn found_initial_cities(
             id,
             City {
                 name,
-                founded_on: 0,
+                founded_on: turn,
             },
             position,
             Population::new(config.initial_city_population),
@@ -137,7 +140,7 @@ pub fn found_initial_cities(
     }
 }
 
-fn generate_name(rng: &mut SimRng) -> String {
+pub(crate) fn generate_name(rng: &mut SimRng) -> String {
     const SYLLABLES: &[&str] = &[
         "ka", "ri", "to", "mel", "an", "dor", "su", "vel", "ith", "ra", "gon", "ben", "ul", "sha",
         "tor", "es", "lin", "mar", "or", "zan",

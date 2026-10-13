@@ -9,7 +9,11 @@ license = "MIT OR Apache-2.0"
 # Only the single-threaded executor: the `multi_threaded` feature is deliberately
 # left off so system scheduling can never introduce nondeterminism.
 bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
+bincode = "1.3"
+flate2 = "1.1.10"
 png = "0.18"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 # The simulation is compute-heavy (climate spin-up), so even debug builds and
 # tests get some optimization. Results are identical at every opt level.

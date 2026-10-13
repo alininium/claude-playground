@@ -20,7 +20,7 @@ use crate::rng::SimRng;
 
 use super::trig::TAU;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OscillationConfig {
     /// Mean length of a full warm-cold cycle, in days.
     pub period_days: u32,
@@ -49,7 +49,7 @@ impl Default for OscillationConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum OscillationPhase {
     /// El Niño-like: warm eastern tropical ocean.
     Warm,
@@ -58,7 +58,7 @@ pub enum OscillationPhase {
     Cold,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Oscillation {
     /// Surface temperature anomaly of the oscillation's core, in °C · ONE.
     index: i64,
@@ -108,7 +108,7 @@ impl Oscillation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Drift {
     /// Global temperature anomaly, in °C · ONE.
     anomaly: i64,

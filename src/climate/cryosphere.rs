@@ -42,7 +42,9 @@ pub const SNOW_COVER: u32 = 500;
 /// Glacier ice thicker than this (1 m) counts as a glacier.
 pub const GLACIER: u32 = 10_000;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct Frozen {
     /// Snow on the ground, water equivalent.
     pub snow: u32,
@@ -60,7 +62,9 @@ pub struct Frozen {
 }
 
 /// The single most visible frozen thing on a tile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Cover {
     None,
     FrozenGround,
@@ -71,15 +75,19 @@ pub enum Cover {
     Glacier,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cryosphere {
     tiles: Vec<Frozen>,
+    /// Meltwater (snow and glacier) released in the last step, tenths of a
+    /// millimeter.
+    melt: Vec<u32>,
 }
 
 impl Cryosphere {
     pub fn new(tile_count: usize) -> Self {
         Self {
             tiles: vec![Frozen::default(); tile_count],
+            melt: vec![0; tile_count],
         }
     }
 
@@ -89,6 +97,12 @@ impl Cryosphere {
 
     pub fn tile(&self, index: usize) -> &Frozen {
         &self.tiles[index]
+    }
+
+    /// Meltwater released by snow and glaciers in the last step, tenths of a
+    /// millimeter.
+    pub fn melt(&self) -> &[u32] {
+        &self.melt
     }
 
     pub fn cover(&self, map: &Map, index: usize) -> Cover {
@@ -128,11 +142,26 @@ impl Cryosphere {
     }
 
     /// Advances every tile by `quarters` quarter-days at the given
-    /// temperatures (tenths °C).
-    pub fn step(&mut self, map: &Map, temperatures: &[i16], quarters: u32, days_per_year: u32) {
+    /// temperatures (tenths °C) and precipitation rates (mm per year).
+    pub fn step(
+        &mut self,
+        map: &Map,
+        temperatures: &[i16],
+        precipitation: &[u16],
+        quarters: u32,
+        days_per_year: u32,
+    ) {
         let q = i64::from(quarters);
         let per_year = i64::from(days_per_year.max(1)) * 4;
-        for ((f, tile), &temp) in self.tiles.iter_mut().zip(map.tiles()).zip(temperatures) {
+        for ((((f, melt), tile), &temp), &rate) in self
+            .tiles
+            .iter_mut()
+            .zip(self.melt.iter_mut())
+            .zip(map.tiles())
+            .zip(temperatures)
+            .zip(precipitation)
+        {
+            *melt = 0;
             let t = i64::from(temp);
             match tile.water {
                 Water::Ocean => water_ice(&mut f.ice, t, SEA_FREEZING_POINT, q, 700),
@@ -141,9 +170,9 @@ impl Cryosphere {
                     if tile.water == Water::River {
                         water_ice(&mut f.ice, t, 0, q, 800);
                     }
-                    // Precipitation: moisture 1000 ≈ 2000 mm a year.
-                    let precipitation = i64::from(tile.moisture) * 20 * q / per_year;
-                    land(f, t, q, precipitation);
+                    // mm per year → tenths of a millimeter in this step.
+                    let precipitation = i64::from(rate) * 10 * q / per_year;
+                    *melt = land(f, t, q, precipitation);
                 }
             }
         }
@@ -207,10 +236,11 @@ fn water_ice(ice: &mut u32, t: i64, freezing_point: i64, q: i64, rate: i64) {
     }
 }
 
-fn land(f: &mut Frozen, t: i64, q: i64, precipitation: i64) {
-    if t < 10 {
-        f.snow = f.snow.saturating_add(precipitation as u32);
-    }
+/// Advances one land tile; returns the meltwater released.
+fn land(f: &mut Frozen, t: i64, q: i64, precipitation: i64) -> u32 {
+    let mass_before = i64::from(f.snow) + i64::from(f.glacier);
+    let snowfall = if t < 10 { precipitation } else { 0 };
+    f.snow = f.snow.saturating_add(snowfall as u32);
     if t > 0 {
         // Snow melts at 4 mm per °C·day, glacier ice at 7.
         let melt = t * q;
@@ -257,6 +287,8 @@ fn land(f: &mut Frozen, t: i64, q: i64, precipitation: i64) {
     if f.frost == 0 {
         f.thawed_this_year = true;
     }
+    let mass_after = i64::from(f.snow) + i64::from(f.glacier);
+    (mass_before + snowfall - mass_after).max(0) as u32
 }
 
 #[cfg(test)]

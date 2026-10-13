@@ -2,16 +2,20 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use societies::Simulation;
+use societies::biome::Biome;
 use societies::climate::cryosphere::Cover;
 use societies::config::SimConfig;
 use societies::events::SimEvent;
-use societies::map::{Biome, Water};
+use societies::map::{Landform, Water};
 use societies::render;
 use societies::time::{TURNS_PER_DAY, TimeOfDay};
 
 const USAGE: &str = "usage: societies [--seed N] [--years N | --days N | --turns N] \
 [--width N] [--height N] [--land PER_MILLE] [--png FILE] [--temp-png FILE] \
-[--fertility-png FILE] [--scale PIXELS_PER_TILE] [--quiet]
+[--fertility-png FILE] [--scale PIXELS_PER_TILE] [--load-world FILE] [--save-world FILE] [--quiet]
+
+--load-world starts from a saved world (its seed, size and terrain win over the flags);
+--save-world saves the world at the end of the run (JSON if FILE ends in .json).
 
 One turn is a quarter of a day (morning, day, evening, night). Default: 2 years.";
 
@@ -23,6 +27,8 @@ fn main() -> ExitCode {
     let mut png: Option<PathBuf> = None;
     let mut temp_png: Option<PathBuf> = None;
     let mut fertility_png: Option<PathBuf> = None;
+    let mut load_world: Option<PathBuf> = None;
+    let mut save_world: Option<PathBuf> = None;
     let mut scale: u32 = 4;
     let mut quiet = false;
 
@@ -37,7 +43,7 @@ fn main() -> ExitCode {
                 quiet = true;
                 continue;
             }
-            "--png" | "--temp-png" | "--fertility-png" => {
+            "--png" | "--temp-png" | "--fertility-png" | "--load-world" | "--save-world" => {
                 let Some(path) = args.next() else {
                     eprintln!("missing value for {flag}\n{USAGE}");
                     return ExitCode::FAILURE;
@@ -45,6 +51,8 @@ fn main() -> ExitCode {
                 match flag.as_str() {
                     "--png" => png = Some(path.into()),
                     "--temp-png" => temp_png = Some(path.into()),
+                    "--load-world" => load_world = Some(path.into()),
+                    "--save-world" => save_world = Some(path.into()),
                     _ => fertility_png = Some(path.into()),
                 }
                 continue;
@@ -83,8 +91,19 @@ fn main() -> ExitCode {
         "seed {}, {} turns, {}x{} map",
         config.seed, turns, config.map_width, config.map_height
     );
-    let mut sim = Simulation::new(config);
+    let mut sim = match load_world {
+        Some(path) => match Simulation::load_world(&path) {
+            Ok(save) => Simulation::from_world(save, config),
+            Err(e) => {
+                eprintln!("failed to load {}: {e}", path.display());
+                return ExitCode::FAILURE;
+            }
+        },
+        None => Simulation::new(config),
+    };
     print_map_summary(&sim);
+    print_volcano_summary(&mut sim);
+    print_biome_summary(&sim);
     print_fertility_summary(&sim);
     print_frozen_summary(&sim);
     if !quiet {
@@ -111,9 +130,37 @@ fn main() -> ExitCode {
                     "turn {turn:>4}: city #{} {name} founded at ({}, {})",
                     id.0, position.x, position.y
                 ),
+                SimEvent::Eruption {
+                    turn,
+                    name,
+                    position,
+                    vei,
+                    cause,
+                    repose_years,
+                    casualties,
+                    ..
+                } => {
+                    let date =
+                        societies::time::Date::from_turn(*turn, sim.config().climate.days_per_year);
+                    let repose = repose_years.map_or("first recorded eruption".into(), |y| {
+                        format!("quiet for {y} years")
+                    });
+                    println!(
+                        "turn {turn:>4} ({date}): VEI {vei} eruption of {name} at ({}, {}); \
+{cause}; {repose}; {casualties} dead",
+                        position.x, position.y
+                    );
+                }
+            }
+        }
+        if !sim.journal().entries().is_empty() {
+            println!("\nclimate journal:");
+            for entry in sim.journal().entries() {
+                println!("  {entry}");
             }
         }
         println!("\nturn {} ({}):", sim.turn(), sim.date());
+        println!("{}", render::ASCII_LEGEND);
         println!("{}\n", sim.render_map());
     }
 
@@ -122,7 +169,7 @@ fn main() -> ExitCode {
         for c in &cities {
             let tile = sim.map().tile(c.position);
             println!(
-                "#{:<3} {:<12} ({:>3},{:>3})  pop {:>6}  founded turn {:<5}  {:>5.1}°C  {:?}{} {}m",
+                "#{:<3} {:<12} ({:>3},{:>3})  pop {:>6}  founded turn {:<5}  {:>5.1}°C  {:?} {:?}{} {}m",
                 c.id.0,
                 c.name,
                 c.position.x,
@@ -130,7 +177,8 @@ fn main() -> ExitCode {
                 c.population,
                 c.founded_on,
                 f64::from(sim.climate().temperature(sim.map().index(c.position))) / 10.0,
-                tile.biome,
+                tile.landform,
+                sim.biomes().biome(sim.map().index(c.position)),
                 if tile.water == Water::River {
                     " + river"
                 } else {
@@ -144,7 +192,16 @@ fn main() -> ExitCode {
     println!("\n{} cities, total population {total}", cities.len());
 
     if let Some(path) = png {
-        if let Err(e) = render::png(sim.map(), sim.climate(), &cities, scale, &path) {
+        let volcanoes: Vec<_> = sim.volcanoes().into_iter().map(|(_, p)| p).collect();
+        if let Err(e) = render::png(
+            sim.map(),
+            sim.climate(),
+            sim.biomes(),
+            &volcanoes,
+            &cities,
+            scale,
+            &path,
+        ) {
             eprintln!("failed to write {}: {e}", path.display());
             return ExitCode::FAILURE;
         }
@@ -168,6 +225,13 @@ fn main() -> ExitCode {
             path.display()
         );
     }
+    if let Some(path) = save_world {
+        if let Err(e) = sim.save_world(&path) {
+            eprintln!("failed to save {}: {e}", path.display());
+            return ExitCode::FAILURE;
+        }
+        println!("world saved to {}", path.display());
+    }
     println!("state digest {:016x}", sim.state_digest());
     ExitCode::SUCCESS
 }
@@ -175,22 +239,48 @@ fn main() -> ExitCode {
 fn print_map_summary(sim: &Simulation) {
     let tiles = sim.map().tiles();
     let pct = |n: usize| n as f64 * 100.0 / tiles.len() as f64;
-    let count = |b: Biome| tiles.iter().filter(|t| t.biome == b).count();
+    let count = |l: Landform| tiles.iter().filter(|t| t.landform == l).count();
     let water = |w: Water| tiles.iter().filter(|t| t.water == w).count();
     let highest = tiles.iter().map(|t| t.altitude).max().unwrap_or(0);
     let deepest = tiles.iter().map(|t| t.altitude).min().unwrap_or(0);
     println!(
-        "terrain: water {:.1}% (ocean {:.1}%, lakes {:.1}%), earth {:.1}%, sand {:.1}%, \
+        "terrain: water {:.1}% (ocean {:.1}%, lakes {:.1}%), plains {:.1}%, \
 hills {:.1}%, mountains {:.1}%; rivers {:.1}%; altitude {deepest}m..{highest}m",
-        pct(count(Biome::Water)),
+        pct(count(Landform::Water)),
         pct(water(Water::Ocean)),
         pct(water(Water::Lake)),
-        pct(count(Biome::Earth)),
-        pct(count(Biome::Sand)),
-        pct(count(Biome::Hills)),
-        pct(count(Biome::Mountains)),
+        pct(count(Landform::Plains)),
+        pct(count(Landform::Hills)),
+        pct(count(Landform::Mountains)),
         pct(water(Water::River)),
     );
+}
+
+fn print_biome_summary(sim: &Simulation) {
+    let map = sim.map();
+    let land: Vec<usize> = (0..map.tile_count() as usize)
+        .filter(|&i| matches!(map.tiles()[i].water, Water::Dry | Water::River))
+        .collect();
+    let area = |i: usize| map.area_weight(map.position_of(i as u32).y) as f64;
+    let total: f64 = land.iter().map(|&i| area(i)).sum::<f64>().max(1.0);
+    let mut shares: Vec<(Biome, f64)> = Biome::ALL
+        .iter()
+        .map(|&b| {
+            let a: f64 = land
+                .iter()
+                .filter(|&&i| sim.biomes().biome(i) == b)
+                .map(|&i| area(i))
+                .sum();
+            (b, a * 100.0 / total)
+        })
+        .filter(|&(_, share)| share > 0.0)
+        .collect();
+    shares.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let list: Vec<String> = shares
+        .iter()
+        .map(|(b, s)| format!("{b:?} {s:.1}%"))
+        .collect();
+    println!("biomes (share of land area): {}", list.join(", "));
 }
 
 fn print_climate_report(sim: &Simulation) {
@@ -264,5 +354,17 @@ fn print_fertility_summary(sim: &Simulation) {
         pct(100, 300),
         pct(300, 600),
         pct(600, 1001),
+    );
+}
+
+fn print_volcano_summary(sim: &mut Simulation) {
+    let volcanoes = sim.volcanoes();
+    let count =
+        |k: societies::volcano::VolcanoKind| volcanoes.iter().filter(|(v, _)| v.kind == k).count();
+    println!(
+        "volcanoes: {} ({} subduction arc, {} hotspot)",
+        volcanoes.len(),
+        count(societies::volcano::VolcanoKind::Arc),
+        count(societies::volcano::VolcanoKind::Hotspot),
     );
 }

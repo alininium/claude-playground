@@ -1,9 +1,15 @@
+mod common;
+
+use common::{Fixture, sim_with};
 use societies::Simulation;
 use societies::config::SimConfig;
 
+/// Fresh generation (not a fixture): these tests cover generation too.
 fn config(seed: u64) -> SimConfig {
     SimConfig {
         seed,
+        map_width: 64,
+        map_height: 32,
         ..SimConfig::default()
     }
 }
@@ -37,12 +43,7 @@ fn different_seeds_diverge() {
 
 #[test]
 fn cities_are_placed_at_generation_and_only_grow() {
-    let mut sim = Simulation::new(SimConfig {
-        map_width: 64,
-        map_height: 32,
-        city_growth_per_mille_per_year: 300,
-        ..config(99)
-    });
+    let mut sim = sim_with(Fixture::Small, |c| c.city_growth_per_mille_per_year = 300);
     let start = sim.cities();
     assert!(!start.is_empty());
     assert!(start.len() <= sim.config().initial_cities as usize);
@@ -72,10 +73,7 @@ fn cities_are_placed_at_generation_and_only_grow() {
 
 #[test]
 fn initial_cities_are_spaced_out_on_settleable_land() {
-    let mut sim = Simulation::new(SimConfig {
-        initial_cities: 40,
-        ..config(5)
-    });
+    let mut sim = sim_with(Fixture::Medium, |c| c.initial_cities = 40);
     let cities = sim.cities();
     assert_eq!(cities.len(), 40);
     let spacing = sim.config().min_city_distance;
@@ -100,10 +98,7 @@ fn initial_cities_are_spaced_out_on_settleable_land() {
 
 #[test]
 fn cities_prefer_fertile_land() {
-    let mut sim = Simulation::new(SimConfig {
-        initial_cities: 30,
-        ..config(8)
-    });
+    let mut sim = sim_with(Fixture::Medium, |c| c.initial_cities = 30);
     let cities = sim.cities();
     let map = sim.map();
     let fertility = sim.fertility();
@@ -125,7 +120,7 @@ fn cities_prefer_fertile_land() {
 
 #[test]
 fn seasons_and_days_change_temperatures() {
-    let mut sim = Simulation::new(config(11));
+    let mut sim = common::sim(Fixture::Medium);
     let days_per_season = u64::from(sim.config().climate.days_per_year) / 4;
     let day = societies::time::TURNS_PER_DAY;
     // A land tile far north of the equator.
@@ -143,4 +138,46 @@ fn seasons_and_days_change_temperatures() {
     let winter_day = sim.climate().temperature(north_land);
     assert!(summer_day > summer_night, "{summer_day} vs {summer_night}");
     assert!(summer_day > winter_day + 50, "{summer_day} vs {winter_day}");
+}
+
+#[test]
+fn event_log_records_every_city_founding_exactly_once() {
+    use societies::events::SimEvent;
+    let mut sim = common::sim(Fixture::Medium);
+    let cities = sim.cities();
+    let founded: Vec<_> = sim
+        .events()
+        .events()
+        .iter()
+        .filter_map(|e| match e {
+            SimEvent::CityFounded {
+                turn,
+                id,
+                name,
+                position,
+            } => Some((*turn, *id, name.clone(), *position)),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        })
+        .collect();
+    let expected: Vec<_> = cities
+        .iter()
+        .map(|c| (0, c.id, c.name.clone(), c.position))
+        .collect();
+    assert_eq!(
+        founded, expected,
+        "one founding event per city, in id order"
+    );
+
+    // Playing on never founds (or logs) another city, and the log is append-only.
+    let before = sim.events().events().to_vec();
+    sim.run(sim.config().turns_per_year());
+    let after = sim.events().events();
+    assert_eq!(&after[..before.len()], &before[..], "history was rewritten");
+    assert!(
+        after[before.len()..]
+            .iter()
+            .all(|e| !matches!(e, SimEvent::CityFounded { .. })),
+        "a city was founded during play"
+    );
 }

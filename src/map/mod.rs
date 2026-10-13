@@ -1,12 +1,14 @@
-//! The world map: a grid of tiles, each with an altitude, a biome and water.
+//! The world map: a grid of tiles, each with an altitude, water, a landform
+//! and a soil. Everything here is fixed at world creation; the climate-driven
+//! vegetation biomes live in [`crate::biome`].
 //!
 //! Generation runs in three stages, each in its own module:
 //! 1. [`terrain`]: continents, ocean floor and mountain ranges (altitudes).
 //! 2. [`hydrology`]: oceans, lakes, rainfall and rivers.
-//! 3. [`biomes`]: classify every tile as one of the five [`Biome`]s.
+//! 3. [`landform`]: classify every tile's [`Landform`] and [`Soil`].
 
-pub mod biomes;
 pub mod hydrology;
+pub mod landform;
 pub mod noise;
 pub mod terrain;
 
@@ -14,16 +16,34 @@ use bevy_ecs::prelude::{Component, Resource};
 
 use crate::rng::SimRng;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Biome {
+/// The shape of the land.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub enum Landform {
     Water,
-    Earth,
-    Sand,
+    Plains,
     Hills,
     Mountains,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// What the ground is made of.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub enum Soil {
+    /// Under water.
+    None,
+    Loam,
+    Sandy,
+    Rocky,
+    /// River deposits on floodplains: the richest soils.
+    Alluvial,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Water {
     Dry,
     River,
@@ -31,16 +51,20 @@ pub enum Water {
     Ocean,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Tile {
     /// Meters relative to sea level. For oceans and lakes this is the bed.
     pub altitude: i32,
     /// Meters: the water surface for lakes, 0 for oceans, else `altitude`.
     pub surface: i32,
-    pub biome: Biome,
+    pub landform: Landform,
+    pub soil: Soil,
     pub water: Water,
     /// Yearly rainfall, 0 (bone dry) to 1000 (rainforest).
     pub moisture: u16,
+    /// Tiles of land the prevailing wind crosses before reaching this tile
+    /// (0 on a windward coast; capped at a fifth of the map width).
+    pub upwind_land: u16,
     /// Rain collected from this tile and everything upstream of it.
     pub flow: u32,
     /// Tile index this tile drains into; `None` for oceans and map-edge outlets.
@@ -48,7 +72,7 @@ pub struct Tile {
 }
 
 /// Tuning knobs for world generation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TerrainConfig {
     /// Share of the map that is land, in 1/1000 (Earth is about 290).
     pub land_per_mille: u32,
@@ -73,11 +97,11 @@ pub struct TerrainConfig {
     pub hills_relief: i32,
     /// Altitude from which land counts as mountains.
     pub mountain_altitude: i32,
-    /// Coastal land up to this altitude is beach (sand).
+    /// Coastal land up to this altitude is beach (sandy soil).
     pub beach_altitude: i32,
-    /// Coasts drier than this get beaches; wetter ones stay earth.
+    /// Coasts drier than this get sandy beaches; wetter ones keep loam.
     pub beach_moisture: u16,
-    /// Land drier than this (and without a river) is desert (sand).
+    /// Land drier than this (and without a river) has sandy soil.
     pub desert_moisture: u16,
 }
 
@@ -101,13 +125,25 @@ impl Default for TerrainConfig {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Component,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct Position {
     pub x: u32,
     pub y: u32,
 }
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Map {
     width: u32,
     height: u32,
@@ -127,16 +163,18 @@ impl Map {
                 .map(|altitude| Tile {
                     altitude,
                     surface: altitude,
-                    biome: Biome::Water,
+                    landform: Landform::Water,
+                    soil: Soil::None,
                     water: Water::Dry,
                     moisture: 0,
+                    upwind_land: 0,
                     flow: 0,
                     downstream: None,
                 })
                 .collect(),
         };
         hydrology::generate(&mut map, config, rng);
-        biomes::assign(&mut map, config);
+        landform::assign(&mut map, config);
         map
     }
 
@@ -216,10 +254,10 @@ impl Map {
         pos.x == 0 || pos.y == 0 || pos.x == self.width - 1 || pos.y == self.height - 1
     }
 
-    /// Cities can be founded on dry, non-mountain land.
+    /// Cities can be founded on dry plains and hills.
     pub fn is_habitable(&self, index: usize) -> bool {
         let tile = &self.tiles[index];
-        matches!(tile.biome, Biome::Earth | Biome::Sand | Biome::Hills)
+        matches!(tile.landform, Landform::Plains | Landform::Hills)
             && matches!(tile.water, Water::Dry | Water::River)
     }
 }
