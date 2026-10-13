@@ -42,7 +42,9 @@ pub const SNOW_COVER: u32 = 500;
 /// Glacier ice thicker than this (1 m) counts as a glacier.
 pub const GLACIER: u32 = 10_000;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct Frozen {
     /// Snow on the ground, water equivalent.
     pub snow: u32,
@@ -60,7 +62,9 @@ pub struct Frozen {
 }
 
 /// The single most visible frozen thing on a tile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Cover {
     None,
     FrozenGround,
@@ -71,7 +75,7 @@ pub enum Cover {
     Glacier,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cryosphere {
     tiles: Vec<Frozen>,
     /// Meltwater (snow and glacier) released in the last step, tenths of a

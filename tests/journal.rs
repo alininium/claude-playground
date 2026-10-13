@@ -1,25 +1,17 @@
 //! The climate journal reports what matters, at the right severity, and
 //! stays short.
 
-use societies::Simulation;
+mod common;
+
+use common::{Fixture, sim_with};
 use societies::climate::oscillation::OscillationConfig;
-use societies::config::SimConfig;
 use societies::journal::{Happening, MIN_RECORD_YEARS, Place, Severity};
 use societies::time::Date;
 use societies::volcano::VolcanoConfig;
 
-fn config(seed: u64) -> SimConfig {
-    SimConfig {
-        seed,
-        map_width: 128,
-        map_height: 64,
-        ..SimConfig::default()
-    }
-}
-
 #[test]
 fn the_journal_is_short_and_written_at_season_boundaries() {
-    let mut sim = Simulation::new(config(3));
+    let mut sim = common::sim(Fixture::Medium);
     let years = 30;
     sim.run(years * sim.config().turns_per_year());
     let days = sim.config().climate.days_per_year;
@@ -47,14 +39,11 @@ fn the_journal_is_short_and_written_at_season_boundaries() {
 
 #[test]
 fn a_big_eruption_is_a_severe_entry_followed_by_a_volcanic_winter() {
-    let mut sim = Simulation::new(SimConfig {
-        map_width: 192,
-        map_height: 96,
-        volcanoes: VolcanoConfig {
+    let mut sim = sim_with(Fixture::Medium, |c| {
+        c.volcanoes = VolcanoConfig {
             eruptions_per_millennium: [0, 0, 0, 1_000 * 364, 0],
             ..VolcanoConfig::default()
-        },
-        ..config(3)
+        }
     });
     sim.run(sim.config().turns_per_year());
     let entries = sim.journal().entries();
@@ -87,15 +76,11 @@ fn a_big_eruption_is_a_severe_entry_followed_by_a_volcanic_winter() {
 #[test]
 fn oscillation_episodes_escalate_without_repeating_levels() {
     // A wild oscillation (3 °C typical) reaches the top levels quickly.
-    let mut sim = Simulation::new(SimConfig {
-        climate: societies::climate::ClimateConfig {
-            oscillation: OscillationConfig {
-                amplitude_tenths: 30,
-                ..OscillationConfig::default()
-            },
-            ..Default::default()
-        },
-        ..config(4)
+    let mut sim = sim_with(Fixture::Medium, |c| {
+        c.climate.oscillation = OscillationConfig {
+            amplitude_tenths: 30,
+            ..OscillationConfig::default()
+        }
     });
     sim.run(20 * sim.config().turns_per_year());
     let phases: Vec<(i64, Severity)> = sim
@@ -127,12 +112,11 @@ fn oscillation_episodes_escalate_without_repeating_levels() {
 
 #[test]
 fn entries_read_well() {
-    let mut sim = Simulation::new(SimConfig {
-        volcanoes: VolcanoConfig {
+    let mut sim = sim_with(Fixture::Medium, |c| {
+        c.volcanoes = VolcanoConfig {
             eruptions_per_millennium: [0, 364_000, 0, 0, 0],
             ..VolcanoConfig::default()
-        },
-        ..config(5)
+        }
     });
     // Eruptions are journaled at the next season boundary.
     sim.run(100);

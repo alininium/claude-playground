@@ -1,6 +1,9 @@
 //! Winds and rain shadows, seasonal and oscillation-driven rain, weather,
 //! soil water and floods, frost-free seasons and day length.
 
+mod common;
+
+use common::Fixture;
 use societies::Simulation;
 use societies::biome::Biome;
 use societies::config::SimConfig;
@@ -60,7 +63,7 @@ fn windward_coasts_are_wetter_than_lee_interiors() {
 
 #[test]
 fn monsoon_rain_falls_in_the_local_summer() {
-    let mut sim = sim(1, 128, 64);
+    let mut sim = common::sim(Fixture::Medium);
     let days = u64::from(sim.config().climate.days_per_year);
     let n = sim.map().tile_count() as usize;
     let outer_tropics: Vec<usize> = (0..n)
@@ -88,7 +91,7 @@ fn monsoon_rain_falls_in_the_local_summer() {
 
 #[test]
 fn the_oscillation_brings_rain_to_its_warm_pool() {
-    let mut sim = sim(2, 96, 48);
+    let mut sim = common::sim(Fixture::Small);
     let n = sim.map().tile_count() as usize;
     let core = (0..n)
         .max_by_key(|&i| sim.climate().profile(i).rain_oscillation)
@@ -114,7 +117,7 @@ fn the_oscillation_brings_rain_to_its_warm_pool() {
 
 #[test]
 fn weather_changes_from_day_to_day() {
-    let mut sim = sim(4, 96, 48);
+    let mut sim = common::sim(Fixture::Small);
     let n = sim.map().tile_count() as usize;
     let midlat_land = (0..n)
         .find(|&i| (400..550).contains(&lat(&sim, i).abs()) && is_land(&sim, i))
@@ -135,7 +138,7 @@ fn weather_changes_from_day_to_day() {
 
 #[test]
 fn rivers_grow_downstream_and_flood_sometimes() {
-    let mut sim = sim(5, 128, 64);
+    let mut sim = common::sim(Fixture::Medium);
     sim.run(sim.config().turns_per_year() + 1);
     let map = sim.map();
     let soil = sim.climate().soil();
@@ -199,9 +202,10 @@ fn frost_free_seasons_shrink_toward_the_poles() {
 
 #[test]
 fn midnight_sun_and_polar_night() {
-    let mut sim = sim(1, 64, 32);
+    let mut sim = common::sim(Fixture::Small);
     let days = u64::from(sim.config().climate.days_per_year);
     sim.run(days / 4 * 4); // northern summer solstice
     assert_eq!(sim.climate().day_length_minutes(0), 1440);
-    assert_eq!(sim.climate().day_length_minutes(31), 0);
+    let last_row = sim.map().height() - 1;
+    assert_eq!(sim.climate().day_length_minutes(last_row), 0);
 }

@@ -11,7 +11,9 @@
 //! biomes) do not flicker with every warm or cold year.
 
 /// A tile's long-term climate.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct ClimateNormal {
     /// Mean annual temperature, hundredths of a degree C.
     pub mean: i32,
@@ -61,7 +63,7 @@ impl ClimateNormal {
 }
 
 /// One finished season, every tile.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct SeasonSummary {
     /// Northern-hemisphere season index: 0 spring .. 3 winter.
     pub season: usize,
@@ -72,7 +74,7 @@ pub struct SeasonSummary {
     pub flood_days: Vec<u16>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct YearStats {
     /// Sum of temperature (tenths °C) × quarter-days, per season.
     temperature: Vec<[i64; 4]>,
@@ -99,7 +101,7 @@ pub(crate) struct YearStats {
     have_normals: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 struct FrostRun {
     current: u16,
     longest: u16,

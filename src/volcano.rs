@@ -48,7 +48,7 @@ use crate::map::{Map, Position, Water};
 use crate::rng::SimRng;
 use crate::time::{TURNS_PER_DAY, Turn};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VolcanoConfig {
     /// Arc volcanoes per 10 000 map tiles.
     pub arcs_per_10k_tiles: u32,
@@ -71,10 +71,22 @@ impl Default for VolcanoConfig {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Component,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct VolcanoId(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum VolcanoKind {
     /// Subduction-zone volcanic arc: a high coastal mountain range.
     Arc,
@@ -99,7 +111,7 @@ impl VolcanoKind {
     }
 }
 
-#[derive(Component, Debug, Clone, PartialEq, Eq)]
+#[derive(Component, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Volcano {
     pub id: VolcanoId,
     pub name: String,
@@ -113,7 +125,7 @@ pub struct Volcano {
 }
 
 /// One eruption, as recorded in the history.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Eruption {
     pub turn: u64,
     pub volcano: VolcanoId,
@@ -182,7 +194,7 @@ fn lethality(vei: u8) -> u64 {
     }
 }
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Volcanism {
     rng: SimRng,
     /// Stratospheric aerosol optical depth, millionths: north, south.
@@ -229,14 +241,13 @@ impl Volcanism {
     }
 }
 
-/// Places volcanoes and spawns them as entities. Returns the [`Volcanism`]
-/// resource.
+/// Places volcanoes. Returns the [`Volcanism`] resource and the volcanoes
+/// (to be spawned as entities).
 pub fn place_volcanoes(
-    world: &mut World,
     config: &SimConfig,
     map: &Map,
     rng: &mut SimRng,
-) -> Volcanism {
+) -> (Volcanism, Vec<(Volcano, Position)>) {
     let mut rng = SimRng::from_seed(rng.next_u64());
     let n = map.tile_count() as usize;
     let tile_km = i64::from(config.climate.planet_circumference_km) / i64::from(map.width()).max(1);
@@ -307,6 +318,7 @@ pub fn place_volcanoes(
     let total_activity: u64 = activity.iter().sum::<u64>().max(1);
 
     let mut volcanic_soil = vec![0u16; n];
+    let mut volcanoes = Vec::with_capacity(sites.len());
     for (k, &(i, kind)) in sites.iter().enumerate() {
         let recharge = yearly_volume * activity[k] / total_activity / days;
         // Start part-way through a repose: arcs up to 5000 years of stored
@@ -317,7 +329,7 @@ pub fn place_volcanoes(
         };
         let magma = recharge * rng.below(max_years * days + 1);
         let position = map.position_of(i as u32);
-        world.spawn((
+        volcanoes.push((
             Volcano {
                 id: VolcanoId(k as u32),
                 name: crate::city::generate_name(&mut rng),
@@ -334,7 +346,7 @@ pub fn place_volcanoes(
         }
     }
 
-    Volcanism {
+    let volcanism = Volcanism {
         rng,
         optical_depth: [0, 0],
         cooling: [0, 0],
@@ -342,7 +354,8 @@ pub fn place_volcanoes(
         volcanic_soil,
         history: Vec::new(),
         tile_km: tile_km.max(1),
-    }
+    };
+    (volcanism, volcanoes)
 }
 
 /// BFS distance (in tiles) to the ocean, up to `max`.

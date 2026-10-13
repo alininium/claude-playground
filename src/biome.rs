@@ -35,7 +35,9 @@ use crate::config::SimConfig;
 use crate::map::{Landform, Map, Water};
 use crate::time::Turn;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Biome {
     Ocean,
     Lake,
@@ -189,7 +191,7 @@ pub fn classify(c: &ClimateSummary, mountains: bool) -> Biome {
     }
 }
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Biomes {
     biome: Vec<Biome>,
 }

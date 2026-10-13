@@ -12,7 +12,10 @@ use societies::time::{TURNS_PER_DAY, TimeOfDay};
 
 const USAGE: &str = "usage: societies [--seed N] [--years N | --days N | --turns N] \
 [--width N] [--height N] [--land PER_MILLE] [--png FILE] [--temp-png FILE] \
-[--fertility-png FILE] [--scale PIXELS_PER_TILE] [--quiet]
+[--fertility-png FILE] [--scale PIXELS_PER_TILE] [--load-world FILE] [--save-world FILE] [--quiet]
+
+--load-world starts from a saved world (its seed, size and terrain win over the flags);
+--save-world saves the world at the end of the run (JSON if FILE ends in .json).
 
 One turn is a quarter of a day (morning, day, evening, night). Default: 2 years.";
 
@@ -24,6 +27,8 @@ fn main() -> ExitCode {
     let mut png: Option<PathBuf> = None;
     let mut temp_png: Option<PathBuf> = None;
     let mut fertility_png: Option<PathBuf> = None;
+    let mut load_world: Option<PathBuf> = None;
+    let mut save_world: Option<PathBuf> = None;
     let mut scale: u32 = 4;
     let mut quiet = false;
 
@@ -38,7 +43,7 @@ fn main() -> ExitCode {
                 quiet = true;
                 continue;
             }
-            "--png" | "--temp-png" | "--fertility-png" => {
+            "--png" | "--temp-png" | "--fertility-png" | "--load-world" | "--save-world" => {
                 let Some(path) = args.next() else {
                     eprintln!("missing value for {flag}\n{USAGE}");
                     return ExitCode::FAILURE;
@@ -46,6 +51,8 @@ fn main() -> ExitCode {
                 match flag.as_str() {
                     "--png" => png = Some(path.into()),
                     "--temp-png" => temp_png = Some(path.into()),
+                    "--load-world" => load_world = Some(path.into()),
+                    "--save-world" => save_world = Some(path.into()),
                     _ => fertility_png = Some(path.into()),
                 }
                 continue;
@@ -84,7 +91,16 @@ fn main() -> ExitCode {
         "seed {}, {} turns, {}x{} map",
         config.seed, turns, config.map_width, config.map_height
     );
-    let mut sim = Simulation::new(config);
+    let mut sim = match load_world {
+        Some(path) => match Simulation::load_world(&path) {
+            Ok(save) => Simulation::from_world(save, config),
+            Err(e) => {
+                eprintln!("failed to load {}: {e}", path.display());
+                return ExitCode::FAILURE;
+            }
+        },
+        None => Simulation::new(config),
+    };
     print_map_summary(&sim);
     print_volcano_summary(&mut sim);
     print_biome_summary(&sim);
@@ -208,6 +224,13 @@ fn main() -> ExitCode {
             sim.date(),
             path.display()
         );
+    }
+    if let Some(path) = save_world {
+        if let Err(e) = sim.save_world(&path) {
+            eprintln!("failed to save {}: {e}", path.display());
+            return ExitCode::FAILURE;
+        }
+        println!("world saved to {}", path.display());
     }
     println!("state digest {:016x}", sim.state_digest());
     ExitCode::SUCCESS

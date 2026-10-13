@@ -22,7 +22,7 @@ use crate::map::{Map, Soil, Water};
 /// Flood when discharge exceeds bankfull × this (per mille).
 const FLOOD_FACTOR: u64 = 2000;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SoilWater {
     /// Field capacity, tenths of a millimeter (0 for water tiles).
     capacity: Vec<u32>,

@@ -16,7 +16,7 @@ use crate::map::noise::{Noise, ONE};
 /// Days per weather epoch.
 const EPOCH_DAYS: u64 = 4;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Weather {
     seed: u64,
     /// Temperature anomaly, tenths °C.

@@ -7,7 +7,7 @@ use crate::climate::ClimateConfig;
 use crate::map::TerrainConfig;
 use crate::volcano::VolcanoConfig;
 
-#[derive(Resource, Debug, Clone, PartialEq, Eq)]
+#[derive(Resource, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SimConfig {
     /// Seed for the single simulation RNG stream.
     pub seed: u64,

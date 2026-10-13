@@ -61,7 +61,7 @@ use soil::SoilWater;
 use stats::{ClimateNormal, SeasonSummary, YearStats};
 use weather::Weather;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ClimateConfig {
     pub days_per_year: u32,
     /// Cooling with altitude, tenths of a degree per kilometer.
@@ -93,7 +93,7 @@ impl Default for ClimateConfig {
 }
 
 /// Static climate profile of one tile. Temperatures in tenths of a degree C.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TileClimate {
     pub mean: i16,
     /// Half the summer-winter difference. Negative in the southern hemisphere.
@@ -120,7 +120,7 @@ pub struct TileClimate {
     pub weather_amplitude: i16,
 }
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Climate {
     days_per_year: u32,
     profiles: Vec<TileClimate>,

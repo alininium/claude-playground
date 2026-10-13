@@ -17,7 +17,9 @@ use bevy_ecs::prelude::{Component, Resource};
 use crate::rng::SimRng;
 
 /// The shape of the land.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Landform {
     Water,
     Plains,
@@ -26,7 +28,9 @@ pub enum Landform {
 }
 
 /// What the ground is made of.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Soil {
     /// Under water.
     None,
@@ -37,7 +41,9 @@ pub enum Soil {
     Alluvial,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Water {
     Dry,
     River,
@@ -45,7 +51,7 @@ pub enum Water {
     Ocean,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Tile {
     /// Meters relative to sea level. For oceans and lakes this is the bed.
     pub altitude: i32,
@@ -66,7 +72,7 @@ pub struct Tile {
 }
 
 /// Tuning knobs for world generation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TerrainConfig {
     /// Share of the map that is land, in 1/1000 (Earth is about 290).
     pub land_per_mille: u32,
@@ -119,13 +125,25 @@ impl Default for TerrainConfig {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Component,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct Position {
     pub x: u32,
     pub y: u32,
 }
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Map {
     width: u32,
     height: u32,

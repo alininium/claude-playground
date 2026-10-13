@@ -1,3 +1,5 @@
+mod common;
+
 use societies::Simulation;
 use societies::biome::Biome;
 use societies::climate::cryosphere::GLACIER;
@@ -93,12 +95,7 @@ fn deserts_are_dry_and_forests_are_wet() {
 
 #[test]
 fn biomes_are_reclassified_every_year_and_stay_mostly_stable() {
-    let mut sim = Simulation::new(SimConfig {
-        seed: 4,
-        map_width: 96,
-        map_height: 48,
-        ..SimConfig::default()
-    });
+    let mut sim = common::sim(common::Fixture::Small);
     let start = sim.biomes().all().to_vec();
     sim.run(sim.config().turns_per_year() - 1);
     assert_eq!(

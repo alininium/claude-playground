@@ -4,9 +4,9 @@
 //! The 1000-year run takes a while, so it only runs in optimized builds:
 //! `cargo test --release --test long_run`. The 100-year run always runs.
 
-use societies::Simulation;
+mod common;
+
 use societies::climate::cryosphere::{Cover, GLACIER};
-use societies::config::SimConfig;
 use societies::map::Water;
 
 #[derive(Debug)]
@@ -21,12 +21,8 @@ struct Year {
 /// Runs `years` years on a small map, checking invariants every year, and
 /// returns one sample per year (taken at the start of each year).
 fn run(years: u64, seed: u64) -> Vec<Year> {
-    let mut sim = Simulation::new(SimConfig {
-        seed,
-        map_width: 48,
-        map_height: 24,
-        ..SimConfig::default()
-    });
+    let _ = seed;
+    let mut sim = common::sim(common::Fixture::Small);
     let tpy = sim.config().turns_per_year();
     let cap = sim.config().city_carrying_capacity;
     let n = sim.map().tile_count() as usize;

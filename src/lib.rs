@@ -20,6 +20,7 @@ pub mod journal;
 pub mod map;
 pub mod render;
 pub mod rng;
+pub mod save;
 pub mod time;
 pub mod volcano;
 
@@ -35,6 +36,7 @@ use fertility::Fertility;
 use journal::Journal;
 use map::{Map, Position};
 use rng::SimRng;
+use save::WorldSave;
 use time::{Date, Turn};
 use volcano::Volcanism;
 
@@ -42,6 +44,10 @@ pub struct Simulation {
     world: World,
     schedule: Schedule,
 }
+
+/// Seed of the random stream cities are founded from (kept for saving).
+#[derive(Resource, Debug, Clone, Copy)]
+struct SocietySeed(u64);
 
 /// Plain-data view of one city, ordered by id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,8 +60,13 @@ pub struct CitySnapshot {
 }
 
 impl Simulation {
+    /// Generates a new world from `config` and founds its cities.
     pub fn new(config: SimConfig) -> Self {
-        let mut world = World::new();
+        Self::from_world(Self::generate_world(&config), config)
+    }
+
+    /// Generates a world (geography, climate, volcanoes; no cities).
+    pub fn generate_world(config: &SimConfig) -> WorldSave {
         let mut rng = SimRng::from_seed(config.seed);
         let map = Map::generate(
             config.map_width,
@@ -64,19 +75,79 @@ impl Simulation {
             &mut rng,
         );
         let climate = Climate::new(&map, &config.climate, &mut rng);
-        let volcanism = volcano::place_volcanoes(&mut world, &config, &map, &mut rng);
-        let biomes = Biomes::new(&map, &climate, &config);
+        let (volcanism, volcanoes) = volcano::place_volcanoes(config, &map, &mut rng);
+        let biomes = Biomes::new(&map, &climate, config);
         let fertility = Fertility::new(&map, &climate, &biomes, &volcanism, &mut rng);
+        let society_seed = rng.next_u64();
+        WorldSave {
+            config: config.clone(),
+            turn: 0,
+            map,
+            climate,
+            biomes,
+            fertility,
+            volcanism,
+            volcanoes,
+            journal: Journal::default(),
+            rng,
+            society_seed,
+        }
+    }
+
+    /// Loads a world saved with [`Simulation::save_world`].
+    pub fn load_world(path: &std::path::Path) -> std::io::Result<WorldSave> {
+        WorldSave::read(path)
+    }
+
+    /// Starts a simulation on a saved (or freshly generated) world and founds
+    /// its cities. Everything that shaped the world comes from the save:
+    /// seed, map size, terrain, the climate (except the oscillation's
+    /// parameters) and where volcanoes are. Everything else comes from
+    /// `config`: city settings, eruption rates and aerosol strength, and the
+    /// oscillation's period, damping and amplitude.
+    pub fn from_world(save: WorldSave, config: SimConfig) -> Self {
+        let world_config = save.config.clone();
+        let config = SimConfig {
+            seed: world_config.seed,
+            map_width: world_config.map_width,
+            map_height: world_config.map_height,
+            terrain: world_config.terrain.clone(),
+            climate: climate::ClimateConfig {
+                oscillation: config.climate.oscillation.clone(),
+                ..world_config.climate.clone()
+            },
+            volcanoes: volcano::VolcanoConfig {
+                arcs_per_10k_tiles: world_config.volcanoes.arcs_per_10k_tiles,
+                hotspots_per_10k_tiles: world_config.volcanoes.hotspots_per_10k_tiles,
+                ..config.volcanoes.clone()
+            },
+            ..config
+        };
+
+        let mut world = World::new();
         world.insert_resource(EventLog::default());
-        city::found_initial_cities(&mut world, &config, &map, &climate, &fertility, &mut rng);
-        world.insert_resource(map);
-        world.insert_resource(climate);
-        world.insert_resource(biomes);
-        world.insert_resource(fertility);
-        world.insert_resource(volcanism);
-        world.insert_resource(Journal::default());
-        world.insert_resource(rng);
-        world.insert_resource(Turn::default());
+        for (volcano, position) in save.volcanoes {
+            world.spawn((volcano, position));
+        }
+        let mut society_rng = SimRng::from_seed(save.society_seed);
+        city::found_initial_cities(
+            &mut world,
+            save.turn,
+            &config,
+            &save.map,
+            &save.climate,
+            &save.fertility,
+            &mut society_rng,
+        );
+        world.insert_resource(save.map);
+        world.insert_resource(save.climate);
+        world.insert_resource(save.biomes);
+        world.insert_resource(save.fertility);
+        world.insert_resource(save.volcanism);
+        world.insert_resource(save.journal);
+        world.insert_resource(save.rng);
+        world.insert_resource(SocietySeed(save.society_seed));
+        world.insert_resource(Turn(save.turn));
         world.insert_resource(config);
 
         let mut schedule = Schedule::default();
@@ -95,6 +166,29 @@ impl Simulation {
         );
 
         Self { world, schedule }
+    }
+
+    /// Snapshot of the world (everything but the cities), for saving.
+    pub fn world_save(&mut self) -> WorldSave {
+        let volcanoes = self.volcanoes();
+        WorldSave {
+            config: self.config().clone(),
+            turn: self.turn(),
+            map: self.map().clone(),
+            climate: self.climate().clone(),
+            biomes: self.biomes().clone(),
+            fertility: self.fertility().clone(),
+            volcanism: self.volcanism().clone(),
+            volcanoes,
+            journal: self.journal().clone(),
+            rng: self.world.resource::<SimRng>().clone(),
+            society_seed: self.world.resource::<SocietySeed>().0,
+        }
+    }
+
+    /// Saves the world (everything but the cities) to a file.
+    pub fn save_world(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+        self.world_save().write(path)
     }
 
     /// Advances the simulation by exactly one turn.
@@ -188,6 +282,14 @@ impl Simulation {
     /// A stable fingerprint of the simulated state (FNV-1a). Two runs with the
     /// same config must produce the same digest at every turn.
     pub fn state_digest(&mut self) -> u64 {
+        let mut h = Fnv1a(self.world_digest());
+        self.cities_digest(&mut h);
+        h.finish()
+    }
+
+    /// A stable fingerprint of the world without the cities: map, climate,
+    /// volcanoes, journal and the main random stream.
+    pub fn world_digest(&mut self) -> u64 {
         let mut h = Fnv1a::new();
         h.write_u64(self.turn());
         for tile in self.map().tiles() {
@@ -214,6 +316,11 @@ impl Simulation {
         }
         // Fold in the RNG position without advancing the real stream.
         h.write_u64(self.world.resource::<SimRng>().clone().next_u64());
+        h.finish()
+    }
+
+    /// Fingerprint of the cities alone.
+    fn cities_digest(&mut self, h: &mut Fnv1a) {
         let mut query = self
             .world
             .query::<(&CityId, &City, &Position, &Population)>();
@@ -228,7 +335,6 @@ impl Simulation {
             h.write_u64(pop.count);
             h.write_u64(pop.growth_remainder);
         }
-        h.finish()
     }
 
     /// Renders the map and cities as ASCII. See [`render::ascii`].

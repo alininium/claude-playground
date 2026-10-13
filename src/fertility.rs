@@ -33,7 +33,7 @@ use crate::rng::SimRng;
 use crate::time::Turn;
 use crate::volcano::Volcanism;
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Fertility {
     soil: Vec<u16>,
     fertility: Vec<u16>,

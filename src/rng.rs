@@ -8,7 +8,7 @@
 
 use bevy_ecs::prelude::Resource;
 
-#[derive(Resource, Debug, Clone, PartialEq, Eq)]
+#[derive(Resource, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SimRng {
     state: [u64; 4],
 }

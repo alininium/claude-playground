@@ -1,3 +1,5 @@
+mod common;
+
 use societies::climate::{Climate, ClimateConfig};
 use societies::map::{Landform, Map, Soil, TerrainConfig, Water};
 use societies::rng::SimRng;
@@ -136,7 +138,7 @@ mod frozen {
 
     #[test]
     fn northern_sea_ice_grows_in_winter_and_shrinks_in_summer() {
-        let mut sim = sim(4);
+        let mut sim = super::common::sim(super::common::Fixture::Medium);
         let days = u64::from(sim.config().climate.days_per_year);
         let northern_sea_ice = |sim: &Simulation| {
             (0..sim.map().tile_count() as usize)
@@ -156,7 +158,7 @@ mod frozen {
 
     #[test]
     fn lakes_and_rivers_freeze_only_in_cold_places() {
-        let mut sim = sim(1);
+        let mut sim = super::common::sim(super::common::Fixture::Medium);
         let days = u64::from(sim.config().climate.days_per_year);
         sim.run((days * 3 / 4 + 30) * 4); // a month into northern winter
         let map = sim.map();

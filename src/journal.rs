@@ -34,9 +34,11 @@ use bevy_ecs::prelude::{Res, ResMut, Resource};
 use crate::climate::Climate;
 use crate::map::{Map, Position, Water};
 use crate::time::{Date, Turn};
-use crate::volcano::{Volcanism, VolcanoId};
+use crate::volcano::{Volcanism, VolcanoId, VolcanoKind};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Severity {
     Minor,
     Moderate,
@@ -68,13 +70,13 @@ impl Severity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Hemisphere {
     Northern,
     Southern,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Happening {
     /// Season mean temperature above normal, tenths °C.
     HeatWave {
@@ -107,7 +109,7 @@ pub enum Happening {
         volcano: VolcanoId,
         name: String,
         vei: u8,
-        cause: &'static str,
+        kind: VolcanoKind,
         casualties: u64,
     },
     /// Aerosol cooling of a hemisphere, tenths °C.
@@ -118,7 +120,7 @@ pub enum Happening {
 }
 
 /// Where it happened.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Place {
     Planet,
     Hemisphere(Hemisphere),
@@ -132,7 +134,7 @@ pub enum Place {
     Site(Position),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct JournalEntry {
     /// Turn the entry was written (eruptions: the turn they happened).
     pub turn: u64,
@@ -196,10 +198,13 @@ impl fmt::Display for JournalEntry {
             Happening::Eruption {
                 name,
                 vei,
-                cause,
+                kind,
                 casualties,
                 ..
-            } => format!("VEI {vei} eruption of {name} ({cause}), {casualties} dead"),
+            } => format!(
+                "VEI {vei} eruption of {name} ({}), {casualties} dead",
+                kind.cause()
+            ),
             Happening::VolcanicWinter { cooling, .. } => {
                 format!(
                     "volcanic winter, {:.1} °C of aerosol cooling",
@@ -211,7 +216,7 @@ impl fmt::Display for JournalEntry {
     }
 }
 
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Journal {
     entries: Vec<JournalEntry>,
     /// Eruptions already looked at.
@@ -431,7 +436,7 @@ pub fn update_journal(
                 volcano: e.volcano,
                 name: e.name.clone(),
                 vei: e.vei,
-                cause: e.kind.cause(),
+                kind: e.kind,
                 casualties: e.casualties,
             },
             place: Place::Site(e.position),

@@ -14,7 +14,9 @@ pub fn advance_turn(mut turn: ResMut<Turn>) {
     turn.0 += 1;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum TimeOfDay {
     Morning,
     Day,
@@ -22,7 +24,9 @@ pub enum TimeOfDay {
     Night,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Season {
     Spring,
     Summer,
@@ -42,7 +46,7 @@ impl Season {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Date {
     /// Starts at 1.
     pub year: u64,
