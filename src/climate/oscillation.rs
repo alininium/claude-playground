@@ -44,7 +44,7 @@ impl Default for OscillationConfig {
             amplitude_tenths: 10,
             phase_threshold_tenths: 5,
             drift_days: 150 * 364,
-            drift_amplitude_tenths: 5,
+            drift_amplitude_tenths: 8,
         }
     }
 }

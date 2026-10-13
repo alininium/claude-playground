@@ -232,7 +232,7 @@ and snow cover changed.
 ![Year 1 vs year 51, ice and snow change](docs/figures/3-fifty-years-ice.png)
 
 **What changed.** Annual mean temperature, year 50 minus year 1, plus the
-trends. With the default drift (150-year timescale, ±0.5 °C) there is no
+trends. With the default drift (150-year timescale, ±0.8 °C) there is no
 strong climate trend over 50 years. The temperature difference is mostly the
 oscillation, weather and volcanic aerosols. The ice sheets start out settled
 (see the spin-up in docs/MODEL.md), so the glacier changes are small.

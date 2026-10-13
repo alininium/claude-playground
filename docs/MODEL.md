@@ -89,7 +89,7 @@ T = annual mean + seasonal swing·cos(2π(t − solstice − lag)/year)
 | | |
 |---|---|
 | Established | An **Ornstein-Uhlenbeck process**, `dx = −x/τ·dt + σ·dW`, with stationary standard deviation `σ·√(τ/2)`. Stochastic climate variability as integrated weather noise follows Hasselmann (*Stochastic climate models*, Tellus, 1976). **Polar amplification**: high latitudes warm and cool more than the global mean. |
-| Our own | Timescale 150 years, standard deviation 0.5 °C, linear polar amplification from 1× at the equator to 2× at the poles. No radiative forcing, CO₂ or orbital cycles. With these defaults the drift is nearly invisible over 50 years (see the figures). |
+| Our own | Timescale 150 years, standard deviation 0.8 °C, linear polar amplification from 1× at the equator to 2× at the poles. No radiative forcing, CO₂ or orbital cycles. With these defaults the drift is small over 50 years (a few tenths of a degree) and reaches about ±1–2 °C over centuries. |
 
 ### 5.3 Weather (`src/climate/weather.rs`)
 

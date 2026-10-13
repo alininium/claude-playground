@@ -86,7 +86,7 @@ fn check_long_term(samples: &[Year]) {
     assert!(samples.iter().any(|s| s.oscillation >= 5));
     assert!(samples.iter().any(|s| s.oscillation <= -5));
     let max_drift = samples.iter().map(|s| s.drift.abs()).max().unwrap();
-    assert!(max_drift <= 25, "drift reached {max_drift} tenths °C");
+    assert!(max_drift <= 40, "drift reached {max_drift} tenths °C");
     // Ice settles: averaged over the second and the last fifth of the run,
     // glaciers and sea ice differ by only a few points.
     let fifth = n / 5;
