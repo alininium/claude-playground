@@ -116,3 +116,111 @@ fn biomes_are_reclassified_every_year_and_stay_mostly_stable() {
         start.len()
     );
 }
+
+#[test]
+fn rainforest_edges_are_not_straight_lines() {
+    for seed in [1, 3, 7] {
+        let sim = sim(seed);
+        let (map, biomes) = (sim.map(), sim.biomes());
+        let (w, h) = (map.width(), map.height());
+        // Northernmost rainforest row in each column that has rainforest.
+        let edges: Vec<i64> = (0..w)
+            .filter_map(|x| {
+                (0..h)
+                    .find(|&y| biomes.biome((y * w + x) as usize) == Biome::TropicalRainforest)
+                    .map(i64::from)
+            })
+            .collect();
+        assert!(edges.len() > 20, "seed {seed}: too little rainforest");
+        let mean = edges.iter().sum::<i64>() / edges.len() as i64;
+        let spread = edges.iter().map(|e| (e - mean).abs()).sum::<i64>() / edges.len() as i64;
+        // At least ~2.5° of average wobble (128 rows over 180°: 1.4° a row).
+        assert!(
+            spread >= 2,
+            "seed {seed}: rainforest edge too straight (±{spread} rows)"
+        );
+    }
+}
+
+#[test]
+fn maritime_tropics_are_rainforest_and_continental_ones_savanna() {
+    let sim = sim(3);
+    let n = sim.map().tile_count() as usize;
+    let land_share = |b: Biome| {
+        let v: Vec<i64> = (0..n)
+            .filter(|&i| sim.biomes().biome(i) == b)
+            .map(|i| i64::from(sim.map().tiles()[i].land_share))
+            .collect();
+        v.iter().sum::<i64>() / v.len().max(1) as i64
+    };
+    let (rainforest, savanna) = (
+        land_share(Biome::TropicalRainforest),
+        land_share(Biome::Savanna),
+    );
+    assert!(
+        rainforest < savanna,
+        "rainforest in {rainforest}‰ land, savanna in {savanna}‰"
+    );
+}
+
+#[test]
+fn the_thermal_equator_leans_toward_the_land() {
+    let sim = sim(7);
+    let map = sim.map();
+    let (w, h) = (map.width(), map.height());
+    // Columns with clearly more tropical land in the north than the south
+    // should, on average, have their thermal equator shifted north.
+    let (mut lean_north, mut lean_south) = (Vec::new(), Vec::new());
+    for x in 0..w {
+        let (mut north, mut south) = (0, 0);
+        for y in 0..h {
+            let i = (y * w + x) as usize;
+            let lat = map.latitude_tenths(y);
+            if lat.abs() <= 300 && map.tiles()[i].water != Water::Ocean {
+                if lat >= 0 { north += 1 } else { south += 1 }
+            }
+        }
+        let shift = i64::from(map.tiles()[(h / 2 * w + x) as usize].tropical_shift);
+        if north > south + 5 {
+            lean_north.push(shift);
+        } else if south > north + 5 {
+            lean_south.push(shift);
+        }
+    }
+    let avg = |v: &[i64]| v.iter().sum::<i64>() / v.len().max(1) as i64;
+    assert!(!lean_north.is_empty() && !lean_south.is_empty());
+    assert!(
+        avg(&lean_north) > avg(&lean_south),
+        "{} vs {}",
+        avg(&lean_north),
+        avg(&lean_south)
+    );
+}
+
+#[test]
+fn subtropical_west_coasts_are_dry() {
+    let sim = sim(1);
+    let map = sim.map();
+    let w = map.width() as usize;
+    let (mut west, mut east) = (Vec::new(), Vec::new());
+    for i in 0..map.tile_count() as usize {
+        let lat = map.latitude_tenths(map.position_of(i as u32).y).abs();
+        if !(160..=280).contains(&lat) || map.tiles()[i].water == Water::Ocean {
+            continue;
+        }
+        let x = i % w;
+        let moisture = i64::from(map.tiles()[i].moisture);
+        if x > 0 && map.tiles()[i - 1].water == Water::Ocean {
+            west.push(moisture);
+        } else if x + 1 < w && map.tiles()[i + 1].water == Water::Ocean {
+            east.push(moisture);
+        }
+    }
+    let avg = |v: &[i64]| v.iter().sum::<i64>() / v.len().max(1) as i64;
+    assert!(
+        avg(&west) < avg(&east),
+        "west coasts {} vs east coasts {}",
+        avg(&west),
+        avg(&east)
+    );
+}

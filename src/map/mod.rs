@@ -65,6 +65,11 @@ pub struct Tile {
     /// Tiles of land the prevailing wind crosses before reaching this tile
     /// (0 on a windward coast; capped at a fifth of the map width).
     pub upwind_land: u16,
+    /// Displacement of the thermal equator here, tenths of a degree (north
+    /// positive); see [`hydrology::tropical_latitude`].
+    pub tropical_shift: i16,
+    /// Share of land within about 1700 km, per mille.
+    pub land_share: u16,
     /// Rain collected from this tile and everything upstream of it.
     pub flow: u32,
     /// Tile index this tile drains into; `None` for oceans and map-edge outlets.
@@ -168,6 +173,8 @@ impl Map {
                     water: Water::Dry,
                     moisture: 0,
                     upwind_land: 0,
+                    tropical_shift: 0,
+                    land_share: 0,
                     flow: 0,
                     downstream: None,
                 })

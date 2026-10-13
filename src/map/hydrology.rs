@@ -6,7 +6,11 @@
 //!    sea with the prevailing winds (easterly trade winds below 30°,
 //!    westerlies to 60°, polar easterlies beyond), so rainfall drops with the
 //!    distance the wind has travelled over land. Mountains upwind cast a rain
-//!    shadow, and slopes facing the wind get extra (orographic) rain. Plus
+//!    shadow, and slopes facing the wind get extra (orographic) rain.
+//!    Subtropical west coasts, washed by cold upwelling currents, are dry.
+//!    The tropical rain belt follows the *thermal equator*, which wanders
+//!    with longitude and bulges toward the hemisphere with more land (see
+//!    [`tropical_shift`]), so tropical bands are not straight lines. Plus
 //!    some noise.
 //! 3. A priority flood from the oceans (Barnes et al. 2014) finds where water
 //!    would pool. Large depressions become lakes, small ones are filled in.
@@ -25,7 +29,10 @@ use crate::rng::SimRng;
 
 pub fn generate(map: &mut Map, config: &TerrainConfig, rng: &mut SimRng) {
     let rain_noise = Noise::new(rng.next_u64());
+    let equator_noise = Noise::new(rng.next_u64());
     mark_oceans(map);
+    tropical_shift(map, &equator_noise);
+    land_share(map);
     assign_moisture(map, &rain_noise);
     let order = flood_and_drain(map, config);
     accumulate_rivers(map, config, &order);
@@ -94,7 +101,8 @@ fn assign_moisture(map: &mut Map, noise: &Noise) {
     for (i, tile) in map.tiles.iter_mut().enumerate() {
         let (x, y) = ((i % w) as i64, (i / w) as i64);
         let lat = latitudes[y as usize];
-        let mut m = latitude_rainfall(lat.abs());
+        let effective = tropical_latitude(lat, tile.tropical_shift);
+        let mut m = latitude_rainfall(effective.abs());
 
         // Walk upwind (against the prevailing wind) to the sea, noting the
         // highest ground the air had to cross.
@@ -125,10 +133,113 @@ fn assign_moisture(map: &mut Map, noise: &Noise) {
             m = m * (1000 + (rise * 300 / 1000).clamp(0, 300)) / 1000;
         }
 
+        // Cold upwelling currents along subtropical west coasts (Atacama,
+        // Namib, Baja California): sea to the west, 12-32° from the equator.
+        let cold_coast = (1..=2)
+            .any(|dx| x - dx >= 0 && water[(y as usize) * w + (x - dx) as usize] == Water::Ocean);
+        if cold_coast {
+            let band = interpolate(&COLD_CURRENT, lat.abs());
+            m = m * (1000 - band) / 1000;
+        }
+
         let fx = (2 * x + 1) * ONE * 10 / (2 * w as i64);
         let fy = (2 * y + 1) * ONE * 10 / (2 * w as i64);
         m += noise.fbm(fx, fy, 6) * 450 / ONE;
         tile.moisture = m.clamp(0, 1000) as u16;
+    }
+}
+
+/// How much drier subtropical west coasts are, per mille, by |latitude|.
+const COLD_CURRENT: [(i64, i64); 4] = [(100, 0), (160, 450), (280, 450), (340, 0)];
+
+fn interpolate(table: &[(i64, i64)], x: i64) -> i64 {
+    for pair in table.windows(2) {
+        let ((x0, y0), (x1, y1)) = (pair[0], pair[1]);
+        if x <= x1 {
+            return y0 + (y1 - y0) * (x - x0).max(0) / (x1 - x0);
+        }
+    }
+    table[table.len() - 1].1
+}
+
+/// Latitude (tenths of a degree) as the tropical climate sees it: shifted by
+/// the local displacement of the thermal equator, fully within 25° of the
+/// equator and fading out by 45°.
+pub fn tropical_latitude(latitude_tenths: i64, shift: i16) -> i64 {
+    let fade = (1000 - (latitude_tenths.abs() - 250).max(0) * 1000 / 200).clamp(0, 1000);
+    latitude_tenths - i64::from(shift) * fade / 1000
+}
+
+/// The thermal equator — where the tropical rain belt sits — is not the
+/// geographic equator. Over each stretch of longitude it is pulled toward
+/// the hemisphere with more land in the tropics (land heats up more), up to
+/// about 10°, plus a wander of typically ±5-8° that varies over a few
+/// hundred kilometers. Stored per tile in
+/// tenths of a degree (positive: north).
+fn tropical_shift(map: &mut Map, noise: &Noise) {
+    let (w, h) = (map.width as i64, map.height as i64);
+    let latitudes: Vec<i64> = (0..h as u32).map(|y| map.latitude_tenths(y)).collect();
+    // Tropical land per column, north and south of the equator.
+    let mut north = vec![0i64; w as usize];
+    let mut south = vec![0i64; w as usize];
+    for y in 0..h {
+        let lat = latitudes[y as usize];
+        if lat.abs() > 300 {
+            continue;
+        }
+        for x in 0..w {
+            if map.tiles[(y * w + x) as usize].water != Water::Ocean {
+                if lat >= 0 {
+                    north[x as usize] += 1;
+                } else {
+                    south[x as usize] += 1;
+                }
+            }
+        }
+    }
+    let window = (w / 24).max(1);
+    let pull: Vec<i64> = (0..w)
+        .map(|x| {
+            let (mut n, mut s) = (0, 0);
+            for dx in -window..=window {
+                let c = (x + dx).clamp(0, w - 1) as usize;
+                n += north[c];
+                s += south[c];
+            }
+            (n - s) * 100 / (n + s + 2 * window + 1).max(1)
+        })
+        .collect();
+    for (i, tile) in map.tiles.iter_mut().enumerate() {
+        let (x, y) = (i as i64 % w, i as i64 / w);
+        let fx = (2 * x + 1) * ONE * 6 / (2 * w);
+        let fy = (2 * y + 1) * ONE * 6 / (2 * w);
+        let wander = noise.fbm(fx, fy, 4) * 250 / ONE;
+        tile.tropical_shift = (pull[x as usize] + wander).clamp(-150, 150) as i16;
+    }
+}
+
+/// Share of land (per mille) within about 1700 km of each tile: large
+/// continents drive strong monsoons, maritime regions weak ones.
+fn land_share(map: &mut Map) {
+    let (w, h) = (map.width as usize, map.height as usize);
+    let r = (w / 24).max(1) as i64;
+    // Summed-area table of land tiles.
+    let mut sum = vec![0i64; (w + 1) * (h + 1)];
+    for y in 0..h {
+        for x in 0..w {
+            let land = i64::from(map.tiles[y * w + x].water != Water::Ocean);
+            sum[(y + 1) * (w + 1) + x + 1] =
+                land + sum[y * (w + 1) + x + 1] + sum[(y + 1) * (w + 1) + x] - sum[y * (w + 1) + x];
+        }
+    }
+    for (i, tile) in map.tiles.iter_mut().enumerate() {
+        let (x, y) = ((i % w) as i64, (i / w) as i64);
+        let (x0, x1) = ((x - r).max(0) as usize, ((x + r + 1) as usize).min(w));
+        let (y0, y1) = ((y - r).max(0) as usize, ((y + r + 1) as usize).min(h));
+        let land = sum[y1 * (w + 1) + x1] - sum[y0 * (w + 1) + x1] - sum[y1 * (w + 1) + x0]
+            + sum[y0 * (w + 1) + x0];
+        let area = ((x1 - x0) * (y1 - y0)) as i64;
+        tile.land_share = (land * 1000 / area.max(1)) as u16;
     }
 }
 

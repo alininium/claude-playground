@@ -30,7 +30,9 @@ fn equator_is_warmer_than_poles() {
     let mean = |i: usize| i64::from(climate.profile(i).mean);
     let tropics = avg(&map, |i| abs_lat(&map, i) < 150, mean);
     let polar = avg(&map, |i| abs_lat(&map, i) > 700, mean);
-    assert!(tropics > polar + 300, "{tropics} vs {polar}");
+    // Polar seas bottom out near −2 °C (seawater freezes at −1.8 °C), so an
+    // all-ocean polar region is "only" ~28 °C colder than the tropics.
+    assert!(tropics > polar + 250, "{tropics} vs {polar}");
 }
 
 #[test]

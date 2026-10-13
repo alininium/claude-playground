@@ -83,9 +83,12 @@ accumulated river flow and the tile it drains into.
    ocean.
 2. **Hydrology** (`hydrology.rs`): rainfall follows Earth's latitude bands and
    the prevailing winds. Moisture comes in from the sea and dries over land,
-   windward slopes get orographic rain, and mountains cast rain shadows. A
-   priority flood finds lakes, every tile drains by steepest descent, and
-   accumulated rain forms rivers.
+   windward slopes get orographic rain, and mountains cast rain shadows. The
+   tropical rain belt follows a wandering *thermal equator* that leans toward
+   the hemisphere with more land, so rainforests and savannas form irregular
+   patches rather than straight bands. Subtropical west coasts are dry (cold
+   currents). A priority flood finds lakes, every tile drains by steepest
+   descent, and accumulated rain forms rivers.
 3. **Landform and soil** (`landform.rs`).
 
 Then the climate is spun up for 4 years, so ice caps, snow and soil water are
@@ -110,7 +113,8 @@ P = long-term amount × seasonal cycle (monsoon, Mediterranean, continental)
   × oscillation effect × weather
 ```
 
-Rain fills a soil-water bucket (`soil.rs`) that evaporates with warmth and
+Monsoons are strong over big continents (savanna) and weak over maritime
+tropics (rainforest). Rain fills a soil-water bucket (`soil.rs`) that evaporates with warmth and
 daylight. Runoff flows down the rivers daily, and a river floods when it tops
 twice its bankfull level. Ice and snow (`cryosphere.rs`) grow and melt by
 Stefan's law and degree-days, and glaciers creep and calve. Each year's
