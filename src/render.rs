@@ -5,6 +5,7 @@ use std::io;
 use std::path::Path;
 
 use crate::CitySnapshot;
+use crate::climate::Climate;
 use crate::map::{Biome, Map, Water};
 
 /// `~` water, `.` earth, `:` sand, `n` hills, `^` mountains, `=` river,
@@ -42,24 +43,65 @@ fn city_glyph(population: u64) -> char {
 
 /// Writes a shaded relief map, `scale` pixels per tile.
 pub fn png(map: &Map, cities: &[CitySnapshot], scale: u32, path: &Path) -> io::Result<()> {
-    let (w, h) = (map.width(), map.height());
-    let scale = scale.max(1);
-    let (pw, ph) = (w * scale, h * scale);
-    let mut tile_rgb = vec![[0u8; 3]; (w * h) as usize];
-    for (i, rgb) in tile_rgb.iter_mut().enumerate() {
-        *rgb = tile_color(map, i);
-    }
+    let mut tile_rgb: Vec<[u8; 3]> = (0..map.tile_count() as usize)
+        .map(|i| tile_color(map, i))
+        .collect();
     for c in cities {
         tile_rgb[map.index(c.position)] = [200, 30, 30];
     }
+    write_png(map, &tile_rgb, scale, path)
+}
 
+/// Writes a temperature map, `scale` pixels per tile. Coastlines are drawn
+/// dark so the continents stay recognizable.
+pub fn temperature_png(map: &Map, climate: &Climate, scale: u32, path: &Path) -> io::Result<()> {
+    let colors: Vec<[u8; 3]> = (0..map.tile_count() as usize)
+        .map(|i| {
+            let coast = map.tiles()[i].water != Water::Ocean
+                && map
+                    .neighbors(i)
+                    .any(|nb| map.tiles()[nb].water == Water::Ocean);
+            if coast {
+                [30, 30, 30]
+            } else {
+                temperature_color(climate.temperature(i))
+            }
+        })
+        .collect();
+    write_png(map, &colors, scale, path)
+}
+
+/// Color ramp from -40 °C (purple) through 0 °C (white) to +45 °C (dark red).
+fn temperature_color(tenths: i16) -> [u8; 3] {
+    const STOPS: [(i32, [i32; 3]); 7] = [
+        (-400, [90, 0, 130]),
+        (-200, [40, 60, 200]),
+        (-50, [140, 200, 245]),
+        (0, [245, 245, 245]),
+        (150, [130, 210, 90]),
+        (300, [245, 170, 40]),
+        (450, [150, 0, 0]),
+    ];
+    let t = i32::from(tenths).clamp(STOPS[0].0, STOPS[STOPS.len() - 1].0);
+    for pair in STOPS.windows(2) {
+        let ((t0, c0), (t1, c1)) = (pair[0], pair[1]);
+        if t <= t1 {
+            return [0, 1, 2].map(|k| (c0[k] + (c1[k] - c0[k]) * (t - t0) / (t1 - t0)) as u8);
+        }
+    }
+    [150, 0, 0]
+}
+
+fn write_png(map: &Map, colors: &[[u8; 3]], scale: u32, path: &Path) -> io::Result<()> {
+    let w = map.width();
+    let scale = scale.max(1);
+    let (pw, ph) = (w * scale, map.height() * scale);
     let mut pixels = Vec::with_capacity((pw * ph * 3) as usize);
     for py in 0..ph {
         for px in 0..pw {
-            pixels.extend_from_slice(&tile_rgb[((py / scale) * w + px / scale) as usize]);
+            pixels.extend_from_slice(&colors[((py / scale) * w + px / scale) as usize]);
         }
     }
-
     let file = std::fs::File::create(path)?;
     let mut encoder = png::Encoder::new(io::BufWriter::new(file), pw, ph);
     encoder.set_color(png::ColorType::Rgb);

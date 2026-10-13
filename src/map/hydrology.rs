@@ -80,10 +80,10 @@ fn assign_moisture(map: &mut Map, noise: &Noise) {
     }
 
     let inland_range = (w as i64 / 5).max(1);
+    let latitudes: Vec<i64> = (0..h as u32).map(|y| map.latitude_tenths(y)).collect();
     for (i, tile) in map.tiles.iter_mut().enumerate() {
         let (x, y) = ((i % w) as i64, (i / w) as i64);
-        // Latitude in tenths of a degree, 0 at the equator, 900 at the poles.
-        let lat = (900 - 1800 * (2 * y + 1) / (2 * h as i64)).abs();
+        let lat = latitudes[y as usize].abs();
         let mut m = latitude_rainfall(lat);
         let d = i64::from(dist[i].min(u32::MAX - 1));
         m = m * (1000 - (d * 650 / inland_range).min(650)) / 1000;
@@ -208,6 +208,11 @@ fn flood_and_drain(map: &mut Map, config: &TerrainConfig) -> Vec<usize> {
         if tile.water != Water::Lake && tile.altitude < lvl {
             tile.altitude = lvl;
         }
+        tile.surface = match tile.water {
+            Water::Ocean => 0,
+            Water::Lake => lvl,
+            _ => tile.altitude,
+        };
     }
     order
 }

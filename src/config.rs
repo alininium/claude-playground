@@ -3,6 +3,7 @@
 
 use bevy_ecs::prelude::Resource;
 
+use crate::climate::ClimateConfig;
 use crate::map::TerrainConfig;
 
 #[derive(Resource, Debug, Clone, PartialEq, Eq)]
@@ -12,14 +13,21 @@ pub struct SimConfig {
     pub map_width: u32,
     pub map_height: u32,
     pub terrain: TerrainConfig,
-    /// Chance (in 1/1000) that a new city is founded on any given turn.
-    pub city_spawn_chance_per_mille: u32,
+    pub climate: ClimateConfig,
+    /// Expected number of new cities founded per year.
+    pub city_foundings_per_year: u32,
     /// Population a freshly founded city starts with.
     pub initial_city_population: u64,
-    /// Maximum growth rate per turn, in 1/1000 of the population.
-    pub city_growth_per_mille: u64,
+    /// Maximum growth rate per year, in 1/1000 of the population.
+    pub city_growth_per_mille_per_year: u64,
     /// Population at which a city stops growing (logistic carrying capacity).
     pub city_carrying_capacity: u64,
+}
+
+impl SimConfig {
+    pub fn turns_per_year(&self) -> u64 {
+        u64::from(self.climate.days_per_year) * crate::time::TURNS_PER_DAY
+    }
 }
 
 impl Default for SimConfig {
@@ -29,9 +37,10 @@ impl Default for SimConfig {
             map_width: 128,
             map_height: 64,
             terrain: TerrainConfig::default(),
-            city_spawn_chance_per_mille: 100,
+            climate: ClimateConfig::default(),
+            city_foundings_per_year: 6,
             initial_city_population: 10,
-            city_growth_per_mille: 20,
+            city_growth_per_mille_per_year: 30,
             city_carrying_capacity: 10_000,
         }
     }

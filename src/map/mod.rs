@@ -35,6 +35,8 @@ pub enum Water {
 pub struct Tile {
     /// Meters relative to sea level. For oceans and lakes this is the bed.
     pub altitude: i32,
+    /// Meters: the water surface for lakes, 0 for oceans, else `altitude`.
+    pub surface: i32,
     pub biome: Biome,
     pub water: Water,
     /// Yearly rainfall, 0 (bone dry) to 1000 (rainforest).
@@ -124,6 +126,7 @@ impl Map {
                 .into_iter()
                 .map(|altitude| Tile {
                     altitude,
+                    surface: altitude,
                     biome: Biome::Water,
                     water: Water::Dry,
                     moisture: 0,
@@ -191,6 +194,13 @@ impl Map {
             let (nx, ny) = (x + dx, y + dy);
             (nx >= 0 && ny >= 0 && nx < w && ny < h).then_some((ny * w + nx) as usize)
         })
+    }
+
+    /// Latitude of a row's center in tenths of a degree: +900 at the top
+    /// (north pole), -900 at the bottom.
+    pub fn latitude_tenths(&self, y: u32) -> i64 {
+        let h = i64::from(self.height);
+        900 - 1800 * (2 * i64::from(y) + 1) / (2 * h)
     }
 
     pub fn is_edge(&self, index: usize) -> bool {

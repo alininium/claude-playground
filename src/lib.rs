@@ -11,22 +11,24 @@
 //! - No wall-clock time, no `HashMap` iteration with random hashers.
 
 pub mod city;
+pub mod climate;
 pub mod config;
 pub mod events;
 pub mod map;
 pub mod render;
 pub mod rng;
-pub mod turn;
+pub mod time;
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::SingleThreadedExecutor;
 
 use city::{City, CityId, NextCityId, Population};
+use climate::Climate;
 use config::SimConfig;
 use events::EventLog;
 use map::{Map, Position};
 use rng::SimRng;
-use turn::Turn;
+use time::{Date, Turn};
 
 pub struct Simulation {
     world: World,
@@ -53,7 +55,9 @@ impl Simulation {
             &config.terrain,
             &mut rng,
         );
+        let climate = Climate::new(&map, &config.climate, &mut rng);
         world.insert_resource(map);
+        world.insert_resource(climate);
         world.insert_resource(rng);
         world.insert_resource(Turn::default());
         world.insert_resource(NextCityId::default());
@@ -62,7 +66,15 @@ impl Simulation {
 
         let mut schedule = Schedule::default();
         schedule.set_executor(SingleThreadedExecutor::new());
-        schedule.add_systems((turn::advance_turn, city::grow_cities, city::spawn_cities).chain());
+        schedule.add_systems(
+            (
+                time::advance_turn,
+                climate::update_climate,
+                city::grow_cities,
+                city::spawn_cities,
+            )
+                .chain(),
+        );
 
         Self { world, schedule }
     }
@@ -80,6 +92,21 @@ impl Simulation {
 
     pub fn turn(&self) -> u64 {
         self.world.resource::<Turn>().0
+    }
+
+    pub fn date(&self) -> Date {
+        Date::from_turn(
+            self.turn(),
+            self.world.resource::<SimConfig>().climate.days_per_year,
+        )
+    }
+
+    pub fn config(&self) -> &SimConfig {
+        self.world.resource::<SimConfig>()
+    }
+
+    pub fn climate(&self) -> &Climate {
+        self.world.resource::<Climate>()
     }
 
     pub fn map(&self) -> &Map {
@@ -119,10 +146,19 @@ impl Simulation {
         h.write_u64(self.turn());
         for tile in self.map().tiles() {
             h.write_u64(tile.altitude as u64);
+            h.write_u64(tile.surface as u64);
             h.write(&[tile.biome as u8, tile.water as u8]);
             h.write_u64(u64::from(tile.moisture));
             h.write_u64(u64::from(tile.flow));
             h.write_u64(tile.downstream.map_or(u64::MAX, u64::from));
+        }
+        let climate = self.climate();
+        let (index, heat, drift) = climate.digest_state();
+        for v in [index, heat, drift] {
+            h.write_u64(v as u64);
+        }
+        for &t in climate.temperatures() {
+            h.write(&t.to_le_bytes());
         }
         // Fold in the RNG position without advancing the real stream.
         h.write_u64(self.world.resource::<SimRng>().clone().next_u64());

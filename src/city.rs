@@ -6,7 +6,7 @@ use crate::config::SimConfig;
 use crate::events::{EventLog, SimEvent};
 use crate::map::{Map, Position};
 use crate::rng::SimRng;
-use crate::turn::Turn;
+use crate::time::Turn;
 
 /// Stable, simulation-assigned identifier. Unlike `Entity`, it is part of the
 /// simulated state and is what systems sort by whenever order matters.
@@ -22,8 +22,9 @@ pub struct City {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Population {
     pub count: u64,
-    /// Fractional growth carried between turns, in thousandths of a person.
-    /// Keeps growth exact without floating point.
+    /// Fractional growth carried between turns, in units of
+    /// `1 / (1000 · turns_per_year · capacity)` of a person. Keeps growth exact
+    /// without floating point.
     pub growth_remainder: u64,
 }
 
@@ -39,21 +40,22 @@ impl Population {
 #[derive(Resource, Debug, Default)]
 pub struct NextCityId(pub u32);
 
-/// Logistic growth in integer arithmetic:
-/// `growth = pop * rate * (capacity - pop) / capacity`, accumulated in 1/1000ths.
+/// Logistic growth in exact integer arithmetic. Per turn:
+/// `growth = pop · rate · (capacity − pop) / (capacity · 1000 · turns_per_year)`.
 pub fn grow_cities(config: Res<SimConfig>, mut cities: Query<&mut Population, With<City>>) {
-    let cap = config.city_carrying_capacity;
+    let cap = config.city_carrying_capacity.max(1);
+    let denominator = u128::from(cap) * 1000 * u128::from(config.turns_per_year());
     for mut pop in &mut cities {
         if pop.count >= cap {
             continue;
         }
         let headroom = cap - pop.count;
-        let growth_milli =
-            pop.count as u128 * config.city_growth_per_mille as u128 * headroom as u128
-                / cap as u128;
-        let total = pop.growth_remainder as u128 + growth_milli;
-        pop.count = (pop.count + (total / 1000) as u64).min(cap);
-        pop.growth_remainder = (total % 1000) as u64;
+        let numerator = u128::from(pop.count)
+            * u128::from(config.city_growth_per_mille_per_year)
+            * u128::from(headroom);
+        let total = u128::from(pop.growth_remainder) + numerator;
+        pop.count = (pop.count + (total / denominator) as u64).min(cap);
+        pop.growth_remainder = (total % denominator) as u64;
     }
 }
 
@@ -69,7 +71,7 @@ pub fn spawn_cities(
     mut log: ResMut<EventLog>,
     existing: Query<&Position, With<City>>,
 ) {
-    if !rng.chance_per_mille(config.city_spawn_chance_per_mille) {
+    if rng.below(config.turns_per_year()) >= u64::from(config.city_foundings_per_year) {
         return;
     }
 

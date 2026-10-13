@@ -6,16 +6,17 @@ Entity-Component-System ([`bevy_ecs`](https://crates.io/crates/bevy_ecs), used
 standalone without the rest of Bevy).
 
 Current state: a generated Earth-like world (continents, altitudes, rivers,
-lakes and five biomes) on which cities are occasionally founded with a
-population of 10 and then grow slowly (logistic growth toward a carrying
-capacity).
+lakes and five biomes) with a living climate (seasons, day and night, an
+El Niño-like oscillation, slow climate drift), on which cities are
+occasionally founded with a population of 10 and then grow slowly (logistic
+growth toward a carrying capacity).
 
 ![Example world, seed 3](docs/example-map.png)
 
 ## Running
 
 ```sh
-cargo run --release -- --seed 42 --turns 300
+cargo run --release -- --seed 42 --years 5
 cargo test
 ```
 
@@ -24,10 +25,18 @@ cargo test
 cargo run --release -- --seed 7 --width 512 --height 256 --turns 0 --quiet --png world.png --scale 2
 ```
 
-Flags: `--seed`, `--turns`, `--width`, `--height`, `--land` (land share in
-1/1000, default 330), `--png FILE`, `--scale` (pixels per tile), `--quiet`.
-The run prints a terrain summary, the event log, an ASCII map, every city, and
-a state digest. The same flags always produce the same digest.
+```sh
+# Temperature map on a northern mid-summer afternoon (day 136, turn 2 of 4).
+cargo run --release -- --seed 3 --width 256 --height 128 --turns 545 --quiet --temp-png summer.png --scale 3
+```
+
+Flags: `--seed`, `--years` / `--days` / `--turns` (run length, default 2
+years), `--width`, `--height`, `--land` (land share in 1/1000, default 330),
+`--png FILE` (relief map), `--temp-png FILE` (temperature map at the end of
+the run), `--scale` (pixels per tile), `--quiet`. The run prints a terrain
+summary, a climate report at the start of every season, the event log, an
+ASCII map, every city with its current temperature, and a state digest. The
+same flags always produce the same digest.
 
 ASCII legend: `~` water, `.` earth, `:` sand, `n` hills, `^` mountains,
 `=` river, `o`/`O`/`@` city (< 100, < 1000, larger).
@@ -59,6 +68,49 @@ tile it drains into. Generation runs in three stages (`src/map/`):
 All of it is integer / fixed-point math, so a seed produces the same world on
 every machine. Tuning knobs live in `TerrainConfig` (`src/map/mod.rs`).
 
+## Time and climate
+
+One turn is a quarter of a day: **morning, day, evening, night**. A year has
+364 days (configurable) in four seasons; turn 0 is the first morning of
+northern spring. `Date::from_turn` (`src/time.rs`) converts turns to dates;
+southern-hemisphere seasons are the opposite.
+
+Every tile has a temperature (tenths of a degree C) recomputed every turn
+(`src/climate/`):
+
+```
+temperature = annual mean + seasonal swing + day/night offset
+            + oscillation index × local response + global drift × polar amplification
+```
+
+- **Annual mean**: by latitude, minus 6.5 °C per km of altitude (lakes use
+  their water surface); dry subtropical land runs hotter, deep high-latitude
+  interiors colder.
+- **Seasons**: a cosine over the year whose amplitude grows toward the poles
+  and with *continentality*, and shrinks over oceans, lakes and near rivers.
+  It is reversed in the south and lags the solstice (about 25 days inland, 40
+  on lakes, 50 at sea).
+- **Continentality**: distance from the ocean that maritime air must travel,
+  with mountains above 1000 m as barriers. The lee of a range gets a harsher
+  climate.
+- **Day and night**: night is coldest and afternoon warmest. The range is
+  large in deserts and on high ground (up to ~20 °C), small near water and
+  ~1 °C at sea.
+- **Planet-wide oscillation** (`oscillation.rs`): an ENSO-like recharge
+  oscillator. The surface temperature anomaly of a tropical "warm pool" and
+  the ocean heat content drive each other a quarter cycle apart. Damping and
+  random daily wind bursts make warm (El Niño-like) and cold (La Niña-like)
+  phases come every 2-7 years, each one different. Each tile has a fixed
+  response: strongest in the tropical ocean near the warm pool, opposite on
+  the far side of the planet, and a weak teleconnection pattern elsewhere.
+- **Global drift**: a slow mean-reverting random walk (centuries, ±0.5 °C
+  typical), amplified up to 2× toward the poles.
+
+The oscillation and drift each have their own RNG stream, so climate draws
+never shift other subsystems' random numbers. Tuning lives in `ClimateConfig`.
+
+![Northern mid-summer afternoon, seed 3](docs/example-temperature.png)
+
 ## Determinism rules
 
 Every run is a pure function of its `SimConfig`, so experiments with different
@@ -76,7 +128,9 @@ initial conditions are reproducible. To keep it that way, every system must:
 `tests/determinism.rs` checks that two runs with the same seed have identical
 state digests (map included) on every turn; `tests/terrain.rs` checks the
 generated world: land share, all biomes present, every tile drains to the sea,
-rivers never end on dry land.
+rivers never end on dry land; `tests/climate.rs` checks the climate
+(colder poles and mountains, harsher interiors, desert vs sea day/night range,
+where the oscillation is felt).
 
 ## Layout
 
@@ -92,8 +146,13 @@ rivers never end on dry land.
 | `src/map/biomes.rs` | Stage 3: biome classification |
 | `src/render.rs` | ASCII and PNG rendering |
 | `src/city.rs` | City components and the `grow_cities` / `spawn_cities` systems |
-| `src/turn.rs` | `Turn` counter |
+| `src/time.rs` | `Turn` counter, `Date`, seasons and times of day |
+| `src/climate/mod.rs` | `Climate` resource: tile climate profiles, temperatures, `update_climate` system |
+| `src/climate/oscillation.rs` | ENSO-like oscillator and global drift |
+| `src/climate/trig.rs` | Integer sine/cosine |
 | `src/events.rs` | `EventLog` of notable happenings |
 | `src/main.rs` | Command-line runner |
 
-A turn runs: `advance_turn` → `grow_cities` → `spawn_cities`.
+A turn runs: `advance_turn` → `update_climate` → `grow_cities` → `spawn_cities`.
+City growth and founding rates are per year (3% growth, about 6 new cities a
+year by default).
