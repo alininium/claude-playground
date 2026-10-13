@@ -11,21 +11,26 @@
 //! - No wall-clock time, no `HashMap` iteration with random hashers.
 
 pub mod city;
+pub mod climate;
 pub mod config;
 pub mod events;
+pub mod fertility;
 pub mod map;
+pub mod render;
 pub mod rng;
-pub mod turn;
+pub mod time;
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::SingleThreadedExecutor;
 
-use city::{City, CityId, NextCityId, Population};
+use city::{City, CityId, Population};
+use climate::Climate;
 use config::SimConfig;
 use events::EventLog;
+use fertility::Fertility;
 use map::{Map, Position};
 use rng::SimRng;
-use turn::Turn;
+use time::{Date, Turn};
 
 pub struct Simulation {
     world: World,
@@ -45,16 +50,35 @@ pub struct CitySnapshot {
 impl Simulation {
     pub fn new(config: SimConfig) -> Self {
         let mut world = World::new();
-        world.insert_resource(Map::new(config.map_width, config.map_height));
-        world.insert_resource(SimRng::from_seed(config.seed));
-        world.insert_resource(Turn::default());
-        world.insert_resource(NextCityId::default());
+        let mut rng = SimRng::from_seed(config.seed);
+        let map = Map::generate(
+            config.map_width,
+            config.map_height,
+            &config.terrain,
+            &mut rng,
+        );
+        let climate = Climate::new(&map, &config.climate, &mut rng);
+        let fertility = Fertility::new(&map, &climate, &mut rng);
         world.insert_resource(EventLog::default());
+        city::found_initial_cities(&mut world, &config, &map, &climate, &fertility, &mut rng);
+        world.insert_resource(map);
+        world.insert_resource(climate);
+        world.insert_resource(fertility);
+        world.insert_resource(rng);
+        world.insert_resource(Turn::default());
         world.insert_resource(config);
 
         let mut schedule = Schedule::default();
         schedule.set_executor(SingleThreadedExecutor::new());
-        schedule.add_systems((turn::advance_turn, city::grow_cities, city::spawn_cities).chain());
+        schedule.add_systems(
+            (
+                time::advance_turn,
+                climate::update_climate,
+                fertility::update_fertility,
+                city::grow_cities,
+            )
+                .chain(),
+        );
 
         Self { world, schedule }
     }
@@ -72,6 +96,25 @@ impl Simulation {
 
     pub fn turn(&self) -> u64 {
         self.world.resource::<Turn>().0
+    }
+
+    pub fn date(&self) -> Date {
+        Date::from_turn(
+            self.turn(),
+            self.world.resource::<SimConfig>().climate.days_per_year,
+        )
+    }
+
+    pub fn config(&self) -> &SimConfig {
+        self.world.resource::<SimConfig>()
+    }
+
+    pub fn climate(&self) -> &Climate {
+        self.world.resource::<Climate>()
+    }
+
+    pub fn fertility(&self) -> &Fertility {
+        self.world.resource::<Fertility>()
     }
 
     pub fn map(&self) -> &Map {
@@ -109,6 +152,18 @@ impl Simulation {
     pub fn state_digest(&mut self) -> u64 {
         let mut h = Fnv1a::new();
         h.write_u64(self.turn());
+        for tile in self.map().tiles() {
+            h.write_u64(tile.altitude as u64);
+            h.write_u64(tile.surface as u64);
+            h.write(&[tile.biome as u8, tile.water as u8]);
+            h.write_u64(u64::from(tile.moisture));
+            h.write_u64(u64::from(tile.flow));
+            h.write_u64(tile.downstream.map_or(u64::MAX, u64::from));
+        }
+        self.climate().digest(&mut |v| h.write_u64(v));
+        for &f in self.fertility().values() {
+            h.write(&f.to_le_bytes());
+        }
         // Fold in the RNG position without advancing the real stream.
         h.write_u64(self.world.resource::<SimRng>().clone().next_u64());
         let mut query = self
@@ -128,21 +183,10 @@ impl Simulation {
         h.finish()
     }
 
-    /// Renders the map as ASCII: `.` empty tile, `o` village, `O` town, `@` city.
+    /// Renders the map and cities as ASCII. See [`render::ascii`].
     pub fn render_map(&mut self) -> String {
-        let (w, h) = (self.map().width(), self.map().height());
-        let mut grid = vec![vec!['.'; w as usize]; h as usize];
-        for c in self.cities() {
-            grid[c.position.y as usize][c.position.x as usize] = match c.population {
-                0..100 => 'o',
-                100..1000 => 'O',
-                _ => '@',
-            };
-        }
-        grid.into_iter()
-            .map(|row| row.into_iter().collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+        let cities = self.cities();
+        render::ascii(self.map(), self.climate(), &cities)
     }
 }
 

@@ -2,11 +2,13 @@
 
 use bevy_ecs::prelude::*;
 
+use crate::climate::Climate;
+use crate::climate::cryosphere::GLACIER;
 use crate::config::SimConfig;
 use crate::events::{EventLog, SimEvent};
-use crate::map::{Map, Position};
+use crate::fertility::Fertility;
+use crate::map::Map;
 use crate::rng::SimRng;
-use crate::turn::Turn;
 
 /// Stable, simulation-assigned identifier. Unlike `Entity`, it is part of the
 /// simulated state and is what systems sort by whenever order matters.
@@ -22,8 +24,9 @@ pub struct City {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Population {
     pub count: u64,
-    /// Fractional growth carried between turns, in thousandths of a person.
-    /// Keeps growth exact without floating point.
+    /// Fractional growth carried between turns, in units of
+    /// `1 / (1000 · turns_per_year · capacity)` of a person. Keeps growth exact
+    /// without floating point.
     pub growth_remainder: u64,
 }
 
@@ -36,82 +39,102 @@ impl Population {
     }
 }
 
-#[derive(Resource, Debug, Default)]
-pub struct NextCityId(pub u32);
-
-/// Logistic growth in integer arithmetic:
-/// `growth = pop * rate * (capacity - pop) / capacity`, accumulated in 1/1000ths.
+/// Logistic growth in exact integer arithmetic. Per turn:
+/// `growth = pop · rate · (capacity − pop) / (capacity · 1000 · turns_per_year)`.
 pub fn grow_cities(config: Res<SimConfig>, mut cities: Query<&mut Population, With<City>>) {
-    let cap = config.city_carrying_capacity;
+    let cap = config.city_carrying_capacity.max(1);
+    let denominator = u128::from(cap) * 1000 * u128::from(config.turns_per_year());
     for mut pop in &mut cities {
         if pop.count >= cap {
             continue;
         }
         let headroom = cap - pop.count;
-        let growth_milli =
-            pop.count as u128 * config.city_growth_per_mille as u128 * headroom as u128
-                / cap as u128;
-        let total = pop.growth_remainder as u128 + growth_milli;
-        pop.count = (pop.count + (total / 1000) as u64).min(cap);
-        pop.growth_remainder = (total % 1000) as u64;
+        let numerator = u128::from(pop.count)
+            * u128::from(config.city_growth_per_mille_per_year)
+            * u128::from(headroom);
+        let total = u128::from(pop.growth_remainder) + numerator;
+        pop.count = (pop.count + (total / denominator) as u64).min(cap);
+        pop.growth_remainder = (total % denominator) as u64;
     }
 }
 
-/// Occasionally founds a new city on a random unoccupied tile.
-#[allow(clippy::too_many_arguments)] // Bevy systems declare their data access as parameters.
-pub fn spawn_cities(
-    mut commands: Commands,
-    config: Res<SimConfig>,
-    turn: Res<Turn>,
-    map: Res<Map>,
-    mut rng: ResMut<SimRng>,
-    mut next_id: ResMut<NextCityId>,
-    mut log: ResMut<EventLog>,
-    existing: Query<&Position, With<City>>,
+/// Cities can be founded on habitable land that is not under a glacier.
+pub fn can_settle(map: &Map, climate: &Climate, index: usize) -> bool {
+    map.is_habitable(index) && climate.cryosphere().tile(index).glacier < GLACIER
+}
+
+/// Places the starting cities when the world is created; no cities are
+/// founded during play. Sites are drawn with probability proportional to
+/// fertility (plus a small floor), and no two cities are closer than
+/// `min_city_distance` tiles. Fewer cities are placed if the land runs out.
+pub fn found_initial_cities(
+    world: &mut World,
+    config: &SimConfig,
+    map: &Map,
+    climate: &Climate,
+    fertility: &Fertility,
+    rng: &mut SimRng,
 ) {
-    if !rng.chance_per_mille(config.city_spawn_chance_per_mille) {
-        return;
+    let mut weight: Vec<u64> = (0..map.tile_count() as usize)
+        .map(|i| {
+            if can_settle(map, climate, i) {
+                u64::from(fertility.fertility(i)) + 10
+            } else {
+                0
+            }
+        })
+        .collect();
+    let spacing = i64::from(config.min_city_distance);
+
+    for n in 0..config.initial_cities {
+        let total: u64 = weight.iter().sum();
+        if total == 0 {
+            break;
+        }
+        // Weighted pick over tiles in row-major order.
+        let mut r = rng.below(total);
+        let index = weight
+            .iter()
+            .position(|&w| {
+                if r < w {
+                    true
+                } else {
+                    r -= w;
+                    false
+                }
+            })
+            .expect("r < total") as u32;
+        let position = map.position_of(index);
+
+        // Rule out everything within the spacing distance.
+        let (cx, cy) = (i64::from(position.x), i64::from(position.y));
+        for y in (cy - spacing + 1).max(0)..(cy + spacing).min(i64::from(map.height())) {
+            for x in (cx - spacing + 1).max(0)..(cx + spacing).min(i64::from(map.width())) {
+                weight[(y * i64::from(map.width()) + x) as usize] = 0;
+            }
+        }
+        weight[index as usize] = 0;
+
+        let id = CityId(n);
+        let name = generate_name(rng);
+        world
+            .resource_mut::<EventLog>()
+            .push(SimEvent::CityFounded {
+                turn: 0,
+                id,
+                name: name.clone(),
+                position,
+            });
+        world.spawn((
+            id,
+            City {
+                name,
+                founded_on: 0,
+            },
+            position,
+            Population::new(config.initial_city_population),
+        ));
     }
-
-    let mut occupied = vec![false; map.tile_count() as usize];
-    for pos in &existing {
-        occupied[map.index(*pos)] = true;
-    }
-    let free = occupied.iter().filter(|o| !**o).count() as u64;
-    if free == 0 {
-        return;
-    }
-
-    // Pick the n-th free tile in row-major order: independent of query order.
-    let n = rng.below(free) as usize;
-    let index = occupied
-        .iter()
-        .enumerate()
-        .filter(|(_, o)| !**o)
-        .nth(n)
-        .map(|(i, _)| i as u32)
-        .expect("n < free");
-    let position = map.position_of(index);
-
-    let id = CityId(next_id.0);
-    next_id.0 += 1;
-    let name = generate_name(&mut rng);
-
-    log.push(SimEvent::CityFounded {
-        turn: turn.0,
-        id,
-        name: name.clone(),
-        position,
-    });
-    commands.spawn((
-        id,
-        City {
-            name,
-            founded_on: turn.0,
-        },
-        position,
-        Population::new(config.initial_city_population),
-    ));
 }
 
 fn generate_name(rng: &mut SimRng) -> String {
