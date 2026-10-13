@@ -117,6 +117,7 @@ pub struct Volcano {
 pub struct Eruption {
     pub turn: u64,
     pub volcano: VolcanoId,
+    pub name: String,
     pub position: Position,
     pub kind: VolcanoKind,
     pub vei: u8,
@@ -501,6 +502,7 @@ pub fn volcanic_activity(
         let eruption = Eruption {
             turn: turn.0,
             volcano: chosen,
+            name: name.clone(),
             position,
             kind,
             vei,

@@ -58,7 +58,7 @@ use crate::time::{Date, TURNS_PER_DAY, TimeOfDay, Turn};
 use cryosphere::Cryosphere;
 use oscillation::{Drift, Oscillation, OscillationConfig};
 use soil::SoilWater;
-use stats::{ClimateNormal, YearStats};
+use stats::{ClimateNormal, SeasonSummary, YearStats};
 use weather::Weather;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,6 +147,8 @@ pub struct Climate {
     volcanic_cooling: [i16; 2],
     /// Absolute day number (days since turn 0).
     day: u64,
+    /// The last season that ended, and the turn it was closed on.
+    last_season: Option<(u64, SeasonSummary)>,
 }
 
 impl Climate {
@@ -194,6 +196,7 @@ impl Climate {
             latitudes: (0..map.height()).map(|y| map.latitude_tenths(y)).collect(),
             volcanic_cooling: [0, 0],
             day: 0,
+            last_season: None,
         };
         climate.spin_up(map, config);
         climate.start_day(0, false);
@@ -278,7 +281,8 @@ impl Climate {
                     TURNS_PER_DAY as u32,
                     season,
                 );
-                self.stats.record_day(&night, |i| soil.is_flooding(i));
+                self.stats
+                    .record_day(&night, |i| soil.is_flooding(i), season);
                 // No flow before seeding: the surplus must be snowfall alone.
                 if year >= 2 {
                     self.cryosphere.flow_glaciers(map);
@@ -330,6 +334,11 @@ impl Climate {
     fn end_year(&mut self) {
         self.cryosphere.end_year();
         self.stats.end_year(self.days_per_year);
+    }
+
+    /// The most recently finished season and the turn it ended on.
+    pub fn last_season(&self) -> Option<&(u64, SeasonSummary)> {
+        self.last_season.as_ref()
     }
 
     pub fn soil(&self) -> &SoilWater {
@@ -535,6 +544,13 @@ pub fn update_climate(
     let date = Date::from_turn(turn.0, climate.days_per_year);
     if turn.0.is_multiple_of(TURNS_PER_DAY) {
         climate.advance_day(&config.climate.oscillation);
+        if date.day_of_season == 0 && turn.0 > 0 {
+            // The previous season just ended: summarize it before the books
+            // are closed for the year.
+            let ended = (date.season as usize + 3) % 4;
+            let summary = climate.stats.season_summary(ended, climate.days_per_year);
+            climate.last_season = Some((turn.0, summary));
+        }
         if date.day_of_year == 0 {
             climate.end_year();
         }
@@ -557,9 +573,11 @@ pub fn update_climate(
         climate.cryosphere.flow_glaciers(&map);
         climate.soil.route(&map);
         let soil = &climate.soil;
-        climate
-            .stats
-            .record_day(&climate.temperature, |i| soil.is_flooding(i));
+        climate.stats.record_day(
+            &climate.temperature,
+            |i| soil.is_flooding(i),
+            date.season as usize,
+        );
     }
 }
 

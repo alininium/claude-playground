@@ -16,6 +16,7 @@ pub mod climate;
 pub mod config;
 pub mod events;
 pub mod fertility;
+pub mod journal;
 pub mod map;
 pub mod render;
 pub mod rng;
@@ -31,6 +32,7 @@ use climate::Climate;
 use config::SimConfig;
 use events::EventLog;
 use fertility::Fertility;
+use journal::Journal;
 use map::{Map, Position};
 use rng::SimRng;
 use time::{Date, Turn};
@@ -72,6 +74,7 @@ impl Simulation {
         world.insert_resource(biomes);
         world.insert_resource(fertility);
         world.insert_resource(volcanism);
+        world.insert_resource(Journal::default());
         world.insert_resource(rng);
         world.insert_resource(Turn::default());
         world.insert_resource(config);
@@ -83,6 +86,7 @@ impl Simulation {
                 time::advance_turn,
                 volcano::volcanic_activity,
                 climate::update_climate,
+                journal::update_journal,
                 biome::update_biomes,
                 fertility::update_fertility,
                 city::grow_cities,
@@ -129,6 +133,11 @@ impl Simulation {
 
     pub fn fertility(&self) -> &Fertility {
         self.world.resource::<Fertility>()
+    }
+
+    /// The climate journal: notable weather and volcanic events by severity.
+    pub fn journal(&self) -> &Journal {
+        self.world.resource::<Journal>()
     }
 
     pub fn volcanism(&self) -> &Volcanism {
@@ -194,6 +203,7 @@ impl Simulation {
             h.write(&[b as u8]);
         }
         self.volcanism().digest(&mut |v| h.write_u64(v));
+        self.journal().digest(&mut |v| h.write_u64(v));
         for (v, p) in self.volcanoes() {
             h.write_u64(u64::from(v.id.0) << 32 | u64::from(p.x) << 16 | u64::from(p.y));
             h.write_u64(v.magma);

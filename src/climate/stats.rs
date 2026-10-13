@@ -15,6 +15,9 @@
 pub struct ClimateNormal {
     /// Mean annual temperature, hundredths of a degree C.
     pub mean: i32,
+    /// Mean temperature per season (northern-hemisphere calendar),
+    /// hundredths of a degree C.
+    pub seasonal_mean: [i32; 4],
     /// Mean precipitation per season (northern-hemisphere calendar: spring,
     /// summer, autumn, winter), tenths of a millimeter.
     pub seasonal_precipitation: [i32; 4],
@@ -57,20 +60,34 @@ impl ClimateNormal {
     }
 }
 
+/// One finished season, every tile.
+#[derive(Debug, Clone, Default)]
+pub struct SeasonSummary {
+    /// Northern-hemisphere season index: 0 spring .. 3 winter.
+    pub season: usize,
+    /// Mean temperature, tenths °C.
+    pub temperature: Vec<i16>,
+    /// Precipitation, tenths of a millimeter.
+    pub precipitation: Vec<i32>,
+    pub flood_days: Vec<u16>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct YearStats {
-    /// Sum of temperature (tenths °C) × quarter-days.
-    temperature: Vec<i64>,
+    /// Sum of temperature (tenths °C) × quarter-days, per season.
+    temperature: Vec<[i64; 4]>,
     /// Sum of precipitation rate (mm/year) × quarter-days, per season.
     precipitation: Vec<[u64; 4]>,
     /// Growing degree-days above 5 °C, tenths °C × quarter-days.
     growing: Vec<u32>,
-    quarter_days: u32,
+    /// Quarter-days accumulated, per season.
+    quarter_days: [u32; 4],
     /// Soil wetness (per mille) × quarter-days, and quarter-days, while
     /// warm enough to grow (above 5 °C).
     wetness: Vec<u64>,
     growing_quarters: Vec<u32>,
-    flood_days: Vec<u16>,
+    /// Flood days, per season.
+    flood_days: Vec<[u16; 4]>,
     frost: Vec<FrostRun>,
     days: u32,
     pub(crate) normals: Vec<ClimateNormal>,
@@ -94,13 +111,13 @@ struct FrostRun {
 impl YearStats {
     pub(crate) fn new(n: usize) -> Self {
         Self {
-            temperature: vec![0; n],
+            temperature: vec![[0; 4]; n],
             precipitation: vec![[0; 4]; n],
             growing: vec![0; n],
-            quarter_days: 0,
+            quarter_days: [0; 4],
             wetness: vec![0; n],
             growing_quarters: vec![0; n],
-            flood_days: vec![0; n],
+            flood_days: vec![[0; 4]; n],
             frost: vec![FrostRun::default(); n],
             days: 0,
             normals: vec![ClimateNormal::default(); n],
@@ -125,7 +142,7 @@ impl YearStats {
     ) {
         let q = i64::from(quarters);
         for (i, (&t, &p)) in temperatures.iter().zip(precipitation).enumerate() {
-            self.temperature[i] += i64::from(t) * q;
+            self.temperature[i][season] += i64::from(t) * q;
             self.precipitation[i][season] += u64::from(p) * u64::from(quarters);
             if t > 50 {
                 self.growing[i] += (i32::from(t) - 50) as u32 * quarters;
@@ -134,11 +151,17 @@ impl YearStats {
                 self.growing_quarters[i] += quarters;
             }
         }
-        self.quarter_days += quarters;
+        self.quarter_days[season] += quarters;
     }
 
-    /// Records one day: the night's temperatures and today's floods.
-    pub(crate) fn record_day(&mut self, night: &[i16], flooding: impl Fn(usize) -> bool) {
+    /// Records one day of `season`: the night's temperatures and today's
+    /// floods.
+    pub(crate) fn record_day(
+        &mut self,
+        night: &[i16],
+        flooding: impl Fn(usize) -> bool,
+        season: usize,
+    ) {
         for (i, (run, &t)) in self.frost.iter_mut().zip(night).enumerate() {
             if t > 0 {
                 run.current += 1;
@@ -151,28 +174,56 @@ impl YearStats {
                 run.current = 0;
             }
             if flooding(i) {
-                self.flood_days[i] += 1;
+                self.flood_days[i][season] += 1;
             }
         }
         self.days += 1;
     }
 
+    /// What one season of this year was like, for every tile: mean
+    /// temperature (tenths °C), precipitation (tenths of a mm) and flood days.
+    pub(crate) fn season_summary(&self, season: usize, days_per_year: u32) -> SeasonSummary {
+        let quarters = i64::from(self.quarter_days[season].max(1));
+        let per_year = u64::from(days_per_year.max(1)) * 4;
+        SeasonSummary {
+            season,
+            temperature: self
+                .temperature
+                .iter()
+                .map(|t| (t[season] / quarters) as i16)
+                .collect(),
+            precipitation: self
+                .precipitation
+                .iter()
+                .map(|p| (p[season] * 10 / per_year) as i32)
+                .collect(),
+            flood_days: self.flood_days.iter().map(|f| f[season]).collect(),
+        }
+    }
+
     /// Closes the year: updates the normals (the first year sets them).
     pub(crate) fn end_year(&mut self, days_per_year: u32) {
-        let quarters = i64::from(self.quarter_days.max(1));
+        let quarters = i64::from(self.quarter_days.iter().sum::<u32>().max(1));
         let per_year = u64::from(days_per_year.max(1)) * 4;
         for i in 0..self.normals.len() {
-            let mean = (self.temperature[i] * 10 / quarters) as i32;
+            let mean = (self.temperature[i].iter().sum::<i64>() * 10 / quarters) as i32;
+            let seasonal_mean: [i32; 4] = std::array::from_fn(|s| {
+                (self.temperature[i][s] * 10 / i64::from(self.quarter_days[s].max(1))) as i32
+            });
             let precipitation = self.precipitation[i].map(|p| (p * 10 / per_year) as i32);
             let normal = &mut self.normals[i];
             if self.have_normals {
                 normal.mean += (mean - normal.mean) / 10;
+                for (n, m) in normal.seasonal_mean.iter_mut().zip(seasonal_mean) {
+                    *n += (m - *n) / 10;
+                }
                 for (n, p) in normal.seasonal_precipitation.iter_mut().zip(precipitation) {
                     *n += (p - *n) / 10;
                 }
             } else {
                 *normal = ClimateNormal {
                     mean,
+                    seasonal_mean,
                     seasonal_precipitation: precipitation,
                 };
             }
@@ -181,33 +232,40 @@ impl YearStats {
                 0 => 1000,
                 q => (self.wetness[i] / u64::from(q)) as u16,
             };
-            self.flood_days_last_year[i] = self.flood_days[i];
+            self.flood_days_last_year[i] = self.flood_days[i].iter().sum();
             let run = self.frost[i];
             self.frost_free_last_year[i] = if run.had_frost {
                 run.longest.max(run.prefix + run.current)
             } else {
                 self.days as u16
             };
-            self.temperature[i] = 0;
+            self.temperature[i] = [0; 4];
             self.precipitation[i] = [0; 4];
             self.growing[i] = 0;
             self.wetness[i] = 0;
             self.growing_quarters[i] = 0;
-            self.flood_days[i] = 0;
+            self.flood_days[i] = [0; 4];
             self.frost[i] = FrostRun::default();
         }
-        self.quarter_days = 0;
+        self.quarter_days = [0; 4];
         self.days = 0;
         self.have_normals = true;
     }
 
     pub(crate) fn digest(&self, write: &mut impl FnMut(u64)) {
-        write(u64::from(self.quarter_days));
+        for q in self.quarter_days {
+            write(u64::from(q));
+        }
         for i in 0..self.normals.len() {
             let n = &self.normals[i];
-            write(self.temperature[i] as u64);
+            for t in self.temperature[i] {
+                write(t as u64);
+            }
             write(u64::from(self.growing[i]) << 32 | u64::from(self.growing_last_year[i]));
             write(n.mean as u64);
+            for m in n.seasonal_mean {
+                write(m as u64);
+            }
             let f = self.frost[i];
             write(
                 u64::from(f.current) << 48
@@ -217,7 +275,7 @@ impl YearStats {
             );
             write(self.wetness[i] ^ u64::from(self.growing_quarters[i]) << 40);
             write(
-                u64::from(self.flood_days[i]) << 48
+                u64::from(self.flood_days[i].iter().sum::<u16>()) << 48
                     | u64::from(self.wetness_last_year[i]) << 32
                     | u64::from(self.flood_days_last_year[i]) << 16
                     | u64::from(self.frost_free_last_year[i]),
@@ -260,13 +318,13 @@ mod tests {
         // frost-free season runs from late in the year into the next.
         for day in 0..364 {
             let night = if (150..200).contains(&day) { -20 } else { 30 };
-            stats.record_day(&[night], |_| false);
+            stats.record_day(&[night], |_| false, 0);
         }
         stats.end_year(364);
         assert_eq!(stats.frost_free_last_year[0], 364 - 50);
 
         for _ in 0..364 {
-            stats.record_day(&[30], |_| false);
+            stats.record_day(&[30], |_| false, 0);
         }
         stats.end_year(364);
         assert_eq!(stats.frost_free_last_year[0], 364, "no frost at all");
@@ -276,6 +334,7 @@ mod tests {
     fn seasonal_shares() {
         let normal = ClimateNormal {
             mean: 0,
+            seasonal_mean: [0; 4],
             seasonal_precipitation: [300, 600, 50, 50],
         };
         assert_eq!(normal.warm_half_share(true), 900);

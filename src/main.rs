@@ -137,6 +137,12 @@ fn main() -> ExitCode {
                 }
             }
         }
+        if !sim.journal().entries().is_empty() {
+            println!("\nclimate journal:");
+            for entry in sim.journal().entries() {
+                println!("  {entry}");
+            }
+        }
         println!("\nturn {} ({}):", sim.turn(), sim.date());
         println!("{}", render::ASCII_LEGEND);
         println!("{}\n", sim.render_map());

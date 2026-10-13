@@ -10,14 +10,17 @@
 //!
 //! Runoff is routed down the drainage network once a day: a tile's
 //! discharge is its own runoff plus everything flowing in from upstream
-//! (instantaneous routing: no travel time). A tile floods on days when its
-//! discharge exceeds three times its long-term (yearly moving average)
-//! discharge.
+//! (instantaneous routing: no travel time). Each tile keeps a "bankfull"
+//! discharge that follows its typical peak flows: it climbs a quarter of the
+//! way toward any higher flow and sinks back over about five years. A tile
+//! floods on days when its discharge tops twice bankfull, so ordinary wet
+//! seasons and spring melts fill the channel but only unusual peaks
+//! overflow it.
 
 use crate::map::{Map, Soil, Water};
 
-/// Flood when discharge exceeds this multiple of the long-term mean.
-const FLOOD_FACTOR: u64 = 3;
+/// Flood when discharge exceeds bankfull × this (per mille).
+const FLOOD_FACTOR: u64 = 2000;
 
 #[derive(Debug, Clone)]
 pub struct SoilWater {
@@ -30,8 +33,8 @@ pub struct SoilWater {
     /// Yesterday's discharge: runoff from this tile and all tiles upstream,
     /// in tenths of a millimeter over one tile per day.
     discharge: Vec<u64>,
-    /// Long-term mean discharge, same units.
-    mean_discharge: Vec<u64>,
+    /// Bankfull discharge (typical yearly peak), same units.
+    bankfull: Vec<u64>,
     flooding: Vec<bool>,
     /// Land and lake tiles, every tile before the tile it drains into.
     order: Vec<u32>,
@@ -57,7 +60,7 @@ impl SoilWater {
             capacity,
             runoff: vec![0; n],
             discharge: vec![0; n],
-            mean_discharge: vec![0; n],
+            bankfull: vec![0; n],
             flooding: vec![false; n],
             order: upstream_first(map),
         }
@@ -142,10 +145,13 @@ impl SoilWater {
             self.runoff[i] = 0;
         }
         for i in 0..self.discharge.len() {
-            let (d, mean) = (self.discharge[i], &mut self.mean_discharge[i]);
-            self.flooding[i] = *mean > 0 && d > *mean * FLOOD_FACTOR;
-            // Yearly exponential moving average.
-            *mean = (*mean * 363 + d) / 364;
+            let (d, bankfull) = (self.discharge[i], &mut self.bankfull[i]);
+            self.flooding[i] = *bankfull > 0 && d * 1000 > *bankfull * FLOOD_FACTOR;
+            if d > *bankfull {
+                *bankfull += (d - *bankfull) / 4 + 1;
+            } else {
+                *bankfull -= *bankfull / 1820;
+            }
         }
     }
 
@@ -153,7 +159,7 @@ impl SoilWater {
         for i in 0..self.water.len() {
             write(u64::from(self.water[i]) << 32 | u64::from(self.runoff[i]));
             write(self.discharge[i]);
-            write(self.mean_discharge[i] << 1 | u64::from(self.flooding[i]));
+            write(self.bankfull[i] << 1 | u64::from(self.flooding[i]));
         }
     }
 }
