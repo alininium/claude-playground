@@ -477,7 +477,10 @@ fn profile(
     // Oscillation teleconnections: strongest over the tropical ocean near the
     // warm pool, opposite sign on the far side of the planet, and a weaker
     // noisy pattern outside the tropics.
-    let tropics = (1000 - (abs_lat * 1000 / 250).pow(2) / 1000).max(0);
+    // Smooth bell, 1000 at the equator to 0 at 30°, with no kink at the edge.
+    let x = (abs_lat * 1000 / 300).min(1000);
+    let bell = 1000 - x * x / 1000;
+    let tropics = bell * bell / 1000;
     let lon_phase = (pos.x as i64 - center_x) * trig::FULL_TURN / i64::from(map.width());
     let east_west = trig::cos(lon_phase) * 1000 / ONE;
     let fx = (2 * pos.x as i64 + 1) * ONE * 4 / (2 * i64::from(map.width()));
