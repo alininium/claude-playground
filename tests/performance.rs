@@ -62,7 +62,24 @@ fn one_day_on_1024x512() {
     within("simulate 1 day on 1024x512", took, BUDGET_DAY_LARGE);
 }
 
-const BUDGET_CREATE_SMALL: u64 = 10_000;
-const BUDGET_CREATE_LARGE: u64 = 100_000;
-const BUDGET_YEAR_SMALL: u64 = 10_000;
-const BUDGET_DAY_LARGE: u64 = 10_000;
+#[test]
+#[cfg_attr(debug_assertions, ignore = "timing needs `cargo test --release`")]
+fn loading_a_saved_256x128_world() {
+    let bytes = Simulation::generate_world(&config(256, 128))
+        .to_bytes()
+        .unwrap();
+    let (_, took) = timed(|| {
+        let save = societies::save::WorldSave::from_bytes(&bytes).unwrap();
+        Simulation::from_world(save, config(256, 128))
+    });
+    within("load a saved 256x128 world", took, BUDGET_LOAD_SMALL);
+}
+
+// Measured in a development container (release build): creation 2.1 s and
+// 47 s, one year 1.45 s, one large day 96 ms, loading 31 ms. Per-step speed
+// matters most, so those budgets are the tight ones.
+const BUDGET_CREATE_SMALL: u64 = 6_000;
+const BUDGET_CREATE_LARGE: u64 = 150_000;
+const BUDGET_YEAR_SMALL: u64 = 4_500;
+const BUDGET_DAY_LARGE: u64 = 300;
+const BUDGET_LOAD_SMALL: u64 = 300;

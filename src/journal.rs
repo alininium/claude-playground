@@ -25,7 +25,10 @@
 //!
 //! Eruptions with 1000+ deaths are raised one level. Oscillation phases
 //! and volcanic winters are logged when an episode reaches a new level,
-//! not again every season it lasts.
+//! not again every season it lasts. When more than four regions report the
+//! same kind of anomaly in a season (a volcanic winter, an El Niño year),
+//! they become one widespread entry with the highest severity, the worst
+//! region's value and the number of regions.
 
 use std::fmt;
 
@@ -132,6 +135,11 @@ pub enum Place {
         longitude: i64,
     },
     Site(Position),
+    /// Many regions at once; `hemisphere` if they all lie in one.
+    Widespread {
+        regions: u32,
+        hemisphere: Option<Hemisphere>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -162,6 +170,15 @@ impl fmt::Display for JournalEntry {
                 longitude as f64 / 10.0
             ),
             Place::Site(p) => format!("at ({}, {})", p.x, p.y),
+            Place::Widespread {
+                regions,
+                hemisphere,
+            } => match hemisphere {
+                Some(h) => format!("in {regions} regions of the {h:?} hemisphere (worst shown)")
+                    .replace("Northern", "northern")
+                    .replace("Southern", "southern"),
+                None => format!("in {regions} regions worldwide (worst shown)"),
+            },
         };
         let what = match &self.happening {
             Happening::HeatWave { anomaly } => {
@@ -245,6 +262,9 @@ const REGION_COLUMNS: u32 = 16;
 const REGION_ROWS: u32 = 8;
 /// Regions with fewer land tiles than this are not reported.
 const MIN_REGION_LAND: usize = 12;
+/// More regions than this with the same anomaly in a season are merged into
+/// one widespread entry.
+const MAX_SEPARATE_REGIONS: usize = 4;
 /// Years of record before regional weather is judged against the normals.
 pub const MIN_RECORD_YEARS: u64 = 20;
 
@@ -267,15 +287,9 @@ pub fn update_journal(
     // The season that ended: the day before this turn.
     let date = Date::from_turn(turn.0.saturating_sub(4), days_per_year);
     let journal = &mut *journal;
-    let mut write = |severity, happening, place| {
-        journal.entries.push(JournalEntry {
-            turn: turn.0,
-            date,
-            severity,
-            happening,
-            place,
-        });
-    };
+    // Regional findings are collected first, then widespread ones merged.
+    let mut regional: Vec<(Severity, Happening, Place)> = Vec::new();
+    let mut write = |severity, happening, place| regional.push((severity, happening, place));
 
     // Regional weather, once the normals have a long enough record.
     let judge_weather = date.year > MIN_RECORD_YEARS;
@@ -359,6 +373,61 @@ pub fn update_journal(
                 write(s, Happening::Floods { flood_days }, place);
             }
         }
+    }
+
+    // More than MAX_SEPARATE_REGIONS regions with the same kind of anomaly
+    // (say, a volcanic winter) become one widespread entry: highest
+    // severity, worst region's value, number of regions.
+    let mut kinds: Vec<std::mem::Discriminant<Happening>> = Vec::new();
+    for (_, happening, _) in &regional {
+        let kind = std::mem::discriminant(happening);
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
+    for kind in kinds {
+        let group: Vec<&(Severity, Happening, Place)> = regional
+            .iter()
+            .filter(|(_, h, _)| std::mem::discriminant(h) == kind)
+            .collect();
+        let mut push = |severity, happening: &Happening, place| {
+            journal.entries.push(JournalEntry {
+                turn: turn.0,
+                date,
+                severity,
+                happening: happening.clone(),
+                place,
+            })
+        };
+        if group.len() <= MAX_SEPARATE_REGIONS {
+            for (severity, happening, place) in group {
+                push(*severity, happening, *place);
+            }
+            continue;
+        }
+        let worst = group
+            .iter()
+            .max_by_key(|(severity, ..)| *severity)
+            .expect("non-empty group");
+        let latitudes: Vec<i64> = group
+            .iter()
+            .filter_map(|(.., place)| match place {
+                Place::Region { latitude, .. } => Some(*latitude),
+                _ => None,
+            })
+            .collect();
+        let hemisphere = if latitudes.iter().all(|&l| l >= 0) {
+            Some(Hemisphere::Northern)
+        } else if latitudes.iter().all(|&l| l < 0) {
+            Some(Hemisphere::Southern)
+        } else {
+            None
+        };
+        let place = Place::Widespread {
+            regions: group.len() as u32,
+            hemisphere,
+        };
+        push(worst.0, &worst.1, place);
     }
 
     // The oscillation: log when an episode reaches a new level.

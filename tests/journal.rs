@@ -30,8 +30,22 @@ fn the_journal_is_short_and_written_at_season_boundaries() {
                 assert_eq!(written.day_of_season, 0, "{e}");
             }
         }
-        // Regional weather waits for a record of climate normals.
+        // Never more than four separate regions of one kind per season:
+        // widespread anomalies are merged into one entry.
         if matches!(e.place, Place::Region { .. }) {
+            let same = entries
+                .iter()
+                .filter(|o| {
+                    o.turn == e.turn
+                        && matches!(o.place, Place::Region { .. })
+                        && std::mem::discriminant(&o.happening)
+                            == std::mem::discriminant(&e.happening)
+                })
+                .count();
+            assert!(same <= 4, "{same} separate entries like {e}");
+        }
+        // Regional weather waits for a record of climate normals.
+        if matches!(e.place, Place::Region { .. } | Place::Widespread { .. }) {
             assert!(e.date.year > MIN_RECORD_YEARS, "{e}");
         }
     }
