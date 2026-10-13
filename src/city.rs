@@ -2,6 +2,7 @@
 
 use bevy_ecs::prelude::*;
 
+use crate::biome::Biomes;
 use crate::climate::Climate;
 use crate::climate::cryosphere::GLACIER;
 use crate::config::SimConfig;
@@ -9,6 +10,7 @@ use crate::events::{EventLog, SimEvent};
 use crate::fertility::Fertility;
 use crate::map::Map;
 use crate::rng::SimRng;
+use crate::tech::{Site, TechTree};
 
 /// Stable, simulation-assigned identifier. Unlike `Entity`, it is part of the
 /// simulated state and is what systems sort by whenever order matters.
@@ -68,6 +70,10 @@ pub fn can_settle(map: &Map, climate: &Climate, index: usize) -> bool {
 /// fertility (plus a small floor), and no two cities are closer than
 /// `min_city_distance` tiles. Fewer cities are placed if the land runs out.
 /// `turn` is the turn the world starts at (0 for a new world).
+///
+/// Each city starts with the technologies of the start year that suit its
+/// surroundings (see [`TechTree::starting_knowledge`]), drawn from
+/// `tech_rng` so that changing the technology file never moves the cities.
 #[allow(clippy::too_many_arguments)]
 pub fn found_initial_cities(
     world: &mut World,
@@ -75,8 +81,11 @@ pub fn found_initial_cities(
     config: &SimConfig,
     map: &Map,
     climate: &Climate,
+    biomes: &Biomes,
     fertility: &Fertility,
+    tree: &TechTree,
     rng: &mut SimRng,
+    tech_rng: &mut SimRng,
 ) {
     let mut weight: Vec<u64> = (0..map.tile_count() as usize)
         .map(|i| {
@@ -120,6 +129,7 @@ pub fn found_initial_cities(
 
         let id = CityId(n);
         let name = generate_name(rng);
+        let knowledge = tree.starting_knowledge(&Site::of(map, biomes, index as usize), tech_rng);
         world
             .resource_mut::<EventLog>()
             .push(SimEvent::CityFounded {
@@ -136,6 +146,7 @@ pub fn found_initial_cities(
             },
             position,
             Population::new(config.initial_city_population),
+            knowledge,
         ));
     }
 }
