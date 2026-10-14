@@ -313,18 +313,44 @@ that way, every system must:
 
 ## Tests
 
-| File | Checks |
-| --- | --- |
-| `tests/determinism.rs` | identical digests every turn for the same seed, cities, event log |
-| `tests/terrain.rs` | land share, landforms and soils, drainage, rivers |
-| `tests/climate.rs` | temperature patterns, polar caps, sea ice, permafrost, fertility rules |
-| `tests/climate_dynamics.rs` | winds and rain shadows, monsoons, oscillation rain, weather, floods, soil wetness, frost-free seasons, day length |
-| `tests/biomes.rs` | biomes match water and ice, variety, latitude order, yearly reclassification |
-| `tests/volcanoes.rs` | placement by cause, eruption rates, event log, magma conservation, cooling and ash |
-| `tests/journal.rs` | sparse, season-aligned, merged, severe eruptions and volcanic winters, escalating episodes |
-| `tests/save_load.rs` | loaded worlds are identical, mid-run saves continue exactly, JSON, bad files |
-| `tests/long_run.rs` | 100 years (always) and 1000 years (`--release`) of stable climate |
-| `tests/performance.rs` | time budgets (`--release`) |
+Run only the tests that matter for your changes, in parallel:
+
+```sh
+tools/test.sh            # core + whatever your branch touches (vs main)
+tools/test.sh core       # a few seconds: the default check while you work
+tools/test.sh all        # core, climate and events (~20 s)
+tools/test.sh slow       # release: century and millennium runs, time budgets
+```
+
+`auto` (the default) reads `git diff` against main, including uncommitted and new files:
+
+- climate, map, biome or fertility code adds **climate** and **events**
+- volcano, journal or event code adds **events**
+- `lib.rs`, the config, the RNG, the fixtures or `Cargo.toml` add both
+- city, technology, save and render code only needs **core**, which always runs
+- if a change could affect long runs or speed, the script suggests **slow**; it never runs it on its own
+
+Plain `cargo test` still runs every category except the release-only tests, one file after another (~45 s).
+
+| Category | File | Checks |
+| --- | --- | --- |
+| core | unit tests | fixed-point math, cryosphere, glacier settling, weather, journal rules |
+| core | `tests/determinism.rs` | identical digests every turn for the same seed; different seeds diverge |
+| core | `tests/save_load.rs` | loaded worlds are identical, mid-run saves continue exactly, JSON, bad files |
+| core | `tests/terrain.rs` | land share, landforms and soils, drainage, rivers |
+| core | `tests/cities.rs` | cities in cradles, barbarian tribes, spacing on the globe, growth, founding events |
+| core | `tests/technologies.rs` | the technology file, its validation, starting knowledge |
+| climate | `tests/climate.rs` | temperature patterns, polar caps, sea ice, permafrost, fertility rules |
+| climate | `tests/climate_dynamics.rs` | winds and rain shadows, monsoons, oscillation rain, weather, floods, soil wetness, frost-free seasons, day length, settled ice sheets |
+| climate | `tests/biomes.rs` | biomes match water and ice, variety, latitude order, yearly reclassification, bent tropical bands |
+| events | `tests/volcanoes.rs` | placement by cause, eruption rates, event log, magma conservation, cooling and ash |
+| events | `tests/journal.rs` | sparse, season-aligned, merged, severe eruptions and volcanic winters, escalating episodes |
+| slow | `tests/long_run.rs` | 100 years (always) and 1000 years (`--release`) of stable climate |
+| slow | `tests/performance.rs` | time budgets (`--release`) |
+
+Tests that are not about world generation use the premade worlds in
+`tests/fixtures/`. Those that are share each generated world between the
+tests of a file (`common::generated`).
 
 ## Layout
 
@@ -358,6 +384,7 @@ that way, every system must:
 | `src/render.rs` | ASCII and PNG rendering |
 | `src/main.rs` | Command-line runner |
 | `examples/figures.rs`, `tools/plot_figures.py` | Data dump and plotting for `docs/figures/` |
+| `tools/test.sh` | Runs the test categories your changes touch, in parallel |
 | `examples/make_world.rs` | Generate and save a world |
 | `tests/common/`, `tests/fixtures/` | Premade test worlds |
 | `docs/MODEL.md` | The model: laws, sources, and our own simplifications |

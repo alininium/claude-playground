@@ -13,7 +13,7 @@ use societies::map::Water;
 use societies::map::hydrology::prevailing_wind;
 
 fn sim(seed: u64, width: u32, height: u32) -> Simulation {
-    Simulation::new(SimConfig {
+    common::generated(SimConfig {
         seed,
         map_width: width,
         map_height: height,

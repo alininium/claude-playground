@@ -1,14 +1,18 @@
 mod common;
 
-use societies::climate::{Climate, ClimateConfig};
-use societies::map::{Landform, Map, Soil, TerrainConfig, Water};
-use societies::rng::SimRng;
+use societies::Simulation;
+use societies::config::SimConfig;
+use societies::map::{Landform, Map, Soil, Water};
 
-fn world(seed: u64) -> (Map, Climate) {
-    let mut rng = SimRng::from_seed(seed);
-    let map = Map::generate(256, 128, &TerrainConfig::default(), &mut rng);
-    let climate = Climate::new(&map, &ClimateConfig::default(), &mut rng);
-    (map, climate)
+/// A freshly generated 256×128 world, shared by the tests that ask for the
+/// same seed.
+fn world(seed: u64) -> Simulation {
+    common::generated(SimConfig {
+        seed,
+        map_width: 256,
+        map_height: 128,
+        ..SimConfig::default()
+    })
 }
 
 /// Average of `f` over tiles matching `filter`.
@@ -26,10 +30,11 @@ fn abs_lat(map: &Map, i: usize) -> i64 {
 
 #[test]
 fn equator_is_warmer_than_poles() {
-    let (map, climate) = world(1);
+    let sim = world(1);
+    let (map, climate) = (sim.map(), sim.climate());
     let mean = |i: usize| i64::from(climate.profile(i).mean);
-    let tropics = avg(&map, |i| abs_lat(&map, i) < 150, mean);
-    let polar = avg(&map, |i| abs_lat(&map, i) > 700, mean);
+    let tropics = avg(map, |i| abs_lat(map, i) < 150, mean);
+    let polar = avg(map, |i| abs_lat(map, i) > 700, mean);
     // Polar seas bottom out near −2 °C (seawater freezes at −1.8 °C), so an
     // all-ocean polar region is "only" ~28 °C colder than the tropics.
     assert!(tropics > polar + 250, "{tropics} vs {polar}");
@@ -37,16 +42,17 @@ fn equator_is_warmer_than_poles() {
 
 #[test]
 fn mountains_are_colder_than_lowlands_at_the_same_latitude() {
-    let (map, climate) = world(2);
-    let band = |i: usize| (200..500).contains(&abs_lat(&map, i));
+    let sim = world(3);
+    let (map, climate) = (sim.map(), sim.climate());
+    let band = |i: usize| (200..500).contains(&abs_lat(map, i));
     let mean = |i: usize| i64::from(climate.profile(i).mean);
     let mountains = avg(
-        &map,
+        map,
         |i| band(i) && map.tiles()[i].landform == Landform::Mountains,
         mean,
     );
     let lowland = avg(
-        &map,
+        map,
         |i| band(i) && map.tiles()[i].landform == Landform::Plains && map.tiles()[i].altitude < 300,
         mean,
     );
@@ -55,15 +61,16 @@ fn mountains_are_colder_than_lowlands_at_the_same_latitude() {
 
 #[test]
 fn interiors_have_harsher_seasons_than_coasts_and_seas() {
-    let (map, climate) = world(3);
-    let band = |i: usize| (400..650).contains(&abs_lat(&map, i));
+    let sim = world(3);
+    let (map, climate) = (sim.map(), sim.climate());
+    let band = |i: usize| (400..650).contains(&abs_lat(map, i));
     let swing = |i: usize| i64::from(climate.profile(i).seasonal_amplitude).abs();
     let cont = |i: usize| climate.profile(i).continentality;
     let land = |i: usize| matches!(map.tiles()[i].water, Water::Dry | Water::River);
-    let interior = avg(&map, |i| band(i) && land(i) && cont(i) > 700, swing);
-    let coast = avg(&map, |i| band(i) && land(i) && cont(i) < 150, swing);
+    let interior = avg(map, |i| band(i) && land(i) && cont(i) > 700, swing);
+    let coast = avg(map, |i| band(i) && land(i) && cont(i) < 150, swing);
     let sea = avg(
-        &map,
+        map,
         |i| band(i) && map.tiles()[i].water == Water::Ocean,
         swing,
     );
@@ -75,27 +82,29 @@ fn interiors_have_harsher_seasons_than_coasts_and_seas() {
 
 #[test]
 fn deserts_swing_more_between_day_and_night_than_the_sea() {
-    let (map, climate) = world(1);
+    let sim = world(1);
+    let (map, climate) = (sim.map(), sim.climate());
     let range = |i: usize| i64::from(climate.profile(i).diurnal_range);
     let desert = avg(
-        &map,
+        map,
         |i| map.tiles()[i].soil == Soil::Sandy && map.tiles()[i].moisture < 200,
         range,
     );
-    let sea = avg(&map, |i| map.tiles()[i].water == Water::Ocean, range);
+    let sea = avg(map, |i| map.tiles()[i].water == Water::Ocean, range);
     assert!(desert > sea * 5, "{desert} vs {sea}");
 }
 
 #[test]
 fn oscillation_is_felt_most_in_the_tropical_ocean() {
-    let (map, climate) = world(4);
+    let sim = world(1);
+    let (map, climate) = (sim.map(), sim.climate());
     let weight = |i: usize| i64::from(climate.profile(i).oscillation_weight).abs();
     let tropical_sea = avg(
-        &map,
-        |i| abs_lat(&map, i) < 100 && map.tiles()[i].water == Water::Ocean,
+        map,
+        |i| abs_lat(map, i) < 100 && map.tiles()[i].water == Water::Ocean,
         weight,
     );
-    let polar = avg(&map, |i| abs_lat(&map, i) > 600, weight);
+    let polar = avg(map, |i| abs_lat(map, i) > 600, weight);
     assert!(tropical_sea > polar * 2, "{tropical_sea} vs {polar}");
 }
 
@@ -106,7 +115,7 @@ mod frozen {
     use societies::map::Water;
 
     fn sim(seed: u64) -> Simulation {
-        Simulation::new(SimConfig {
+        crate::common::generated(SimConfig {
             seed,
             map_width: 128,
             map_height: 64,

@@ -1,4 +1,5 @@
-use societies::Simulation;
+mod common;
+
 use societies::config::SimConfig;
 use societies::events::SimEvent;
 use societies::map::Water;
@@ -7,8 +8,8 @@ use societies::volcano::{VolcanoConfig, VolcanoKind};
 fn config(seed: u64, volcanoes: VolcanoConfig) -> SimConfig {
     SimConfig {
         seed,
-        map_width: 192,
-        map_height: 96,
+        map_width: 128,
+        map_height: 64,
         volcanoes,
         ..SimConfig::default()
     }
@@ -16,7 +17,7 @@ fn config(seed: u64, volcanoes: VolcanoConfig) -> SimConfig {
 
 #[test]
 fn volcanoes_sit_where_their_cause_says() {
-    let mut sim = Simulation::new(config(3, VolcanoConfig::default()));
+    let mut sim = common::generated(config(3, VolcanoConfig::default()));
     let volcanoes = sim.volcanoes();
     assert!(volcanoes.iter().any(|(v, _)| v.kind == VolcanoKind::Arc));
     assert!(
@@ -47,22 +48,23 @@ fn volcanoes_sit_where_their_cause_says() {
     }
 }
 
-/// Twenty times Earth's eruption rates (magma recharge scales with them),
-/// so a decade shows two centuries' worth of eruptions.
-fn busy() -> VolcanoConfig {
+/// `factor` times Earth's eruption rates (magma recharge scales with them),
+/// so a few years show centuries' worth of eruptions.
+fn busy(factor: u32) -> VolcanoConfig {
     VolcanoConfig {
-        eruptions_per_millennium: [40_000, 3_000, 400, 160, 20],
+        eruptions_per_millennium: [2_000, 150, 20, 8, 1].map(|r| r * factor),
         ..VolcanoConfig::default()
     }
 }
 
 #[test]
 fn eruptions_follow_the_configured_rates_and_are_logged() {
-    let mut sim = Simulation::new(config(5, busy()));
-    sim.run(10 * sim.config().turns_per_year());
+    // Forty times Earth's rates for five years: two centuries of eruptions.
+    let mut sim = common::generated(config(5, busy(40)));
+    sim.run(5 * sim.config().turns_per_year());
     let history = sim.volcanism().history().to_vec();
     let count = |vei: u8| history.iter().filter(|e| e.vei == vei).count() as u64;
-    // Expected over 10 years: 400 VEI 3, 30 VEI 4.
+    // Expected: 400 VEI 3, 30 VEI 4.
     assert!((300..=500).contains(&count(3)), "{} VEI 3", count(3));
     assert!((10..=50).contains(&count(4)), "{} VEI 4", count(4));
     assert!(
@@ -91,7 +93,7 @@ fn eruptions_follow_the_configured_rates_and_are_logged() {
 
 #[test]
 fn magma_is_conserved() {
-    let mut sim = Simulation::new(config(7, busy()));
+    let mut sim = common::generated(config(7, busy(20)));
     let start: Vec<u64> = sim.volcanoes().iter().map(|(v, _)| v.magma).collect();
     let days = 5 * u64::from(sim.config().climate.days_per_year);
     sim.run(days * 4);
@@ -122,8 +124,8 @@ fn a_large_eruption_cools_the_planet_and_buries_land_in_ash() {
         eruptions_per_millennium: [0; 5],
         ..VolcanoConfig::default()
     };
-    let mut hot = Simulation::new(config(3, eruptive));
-    let mut calm = Simulation::new(config(3, quiet));
+    let mut hot = common::generated(config(3, eruptive));
+    let mut calm = common::generated(config(3, quiet));
     hot.run(4); // first day
     let eruption = hot
         .volcanism()
