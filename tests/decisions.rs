@@ -345,7 +345,9 @@ fn company_and_rest_follow_what_people_did() {
 #[test]
 fn cold_nights_make_people_want_warmth() {
     let mut sim = common::sim(Fixture::Small);
-    set_needs(&mut sim, needs_at(0, &[]));
+    // Start half cold, so that a night by the fire does not wipe out the
+    // difference the cold makes.
+    set_needs(&mut sim, needs_at(0, &[(Need::Warmth, 500)]));
     sim.run(3); // to the first night
     assert_eq!(sim.date().time_of_day, TimeOfDay::Night);
     let cities = sim.cities();

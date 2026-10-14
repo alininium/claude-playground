@@ -32,10 +32,10 @@
       "company": 60, "fun": 50, "esteem": 15, "family": 10
     },
     "rest_awake_per_day": 400,
-    "night_sleep": { "rest": 360, "warmth": 60 },
+    "night_sleep": { "rest": 360, "warmth": 200 },
     "warmth": {
       "comfort_tenths": 120,
-      "per_degree_per_day": 12,
+      "per_degree_per_day": 4,
       "season_extra_per_day": [0, 0, 10, 40]
     },
     "safety": { "disaster_per_day": 150, "disaster_days": 60 }
@@ -267,7 +267,9 @@
     ],
     "items_note": "Listed from least to most valued: a crafter makes the last item they know that the city is short of. requires_any: technologies, any one of which lets a person make it. labour_days: person-days of work for one. durability_days: working days before it breaks. work: per mille output with the tool, by action (missing: 1000, no help). Ores are not on the map yet, so metal tools need only the knowledge.",
     "reserve_per_mille": 100,
-    "reserve_note": "A city counts as short of an item while its stores hold fewer than this share (per mille) of the workers whose work it helps."
+    "reserve_note": "A city counts as short of an item while its stores hold fewer than this share (per mille) of the workers whose work it helps.",
+    "spare_per_mille": 500,
+    "spare_note": "With nothing short, crafters make spares only while the stores hold fewer of an item than this share (per mille) of the city's people; then they stop."
   },
   "caravan": {
     "min_adults": 5,

@@ -354,6 +354,7 @@ impl Simulation {
         self.cities_digest(&mut h);
         people::digest(&mut self.world, &mut |v| h.write_u64(v));
         tools::digest(&mut self.world, &mut |v| h.write_u64(v));
+        self.society_digest(&mut h);
         h.finish()
     }
 
@@ -387,6 +388,41 @@ impl Simulation {
         // Fold in the RNG position without advancing the real stream.
         h.write_u64(self.world.resource::<SimRng>().clone().next_u64());
         h.finish()
+    }
+
+    /// Fingerprint of the rest of society's state: city stores and food
+    /// accounts, what people's decisions remember, pregnancies, and the
+    /// caravans on the road. Hashed through their `Debug` form, which is
+    /// stable (no hash maps), since this only runs in tests and tools.
+    fn society_digest(&mut self, h: &mut Fnv1a) {
+        let world = &mut self.world;
+        let mut cities: Vec<_> = world
+            .query::<(&CityId, &economy::Stores, Option<&economy::Larder>)>()
+            .iter(world)
+            .map(|(id, stores, larder)| (*id, format!("{stores:?}{larder:?}")))
+            .collect();
+        cities.sort_by_key(|c| c.0);
+        for (_, text) in cities {
+            h.write(text.as_bytes());
+        }
+        let mut people: Vec<_> = world
+            .query::<(
+                &people::PersonId,
+                Option<&people::decide::Plan>,
+                Option<&people::life::Pregnant>,
+                Option<&people::life::PostPartum>,
+            )>()
+            .iter(world)
+            .map(|(id, plan, pregnant, post)| (*id, format!("{plan:?}{pregnant:?}{post:?}")))
+            .collect();
+        people.sort_by_key(|p| p.0);
+        for (id, text) in people {
+            h.write_u64(id.0);
+            h.write(text.as_bytes());
+        }
+        for caravan in caravan::caravans(world) {
+            h.write(format!("{caravan:?}").as_bytes());
+        }
     }
 
     /// Fingerprint of the cities alone.

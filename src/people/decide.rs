@@ -395,8 +395,22 @@ fn decide(
         places: &places,
     };
 
+    // Only adults who might act this turn: everyone in the morning (to
+    // decide, or to take a longer action up again); later in the day only
+    // those whose action has ended or who have a new urgent need. On most
+    // turns that is nearly nobody.
+    let adult_age = founding.adult_age;
+    let tpy = context.turns_per_year;
+    let morning = context.morning;
     let mut rows: Vec<Row> = people
         .iter_mut()
+        .filter(|(_, person, _, _, _, _, needs, activity, _, plan)| {
+            activity.until != u64::MAX
+                && person.age_years(now, tpy) >= adult_age
+                && (morning
+                    || activity.until <= now
+                    || catalog.urgent_needs(needs) & !plan.urgent != 0)
+        })
         .map(
             |(id, person, traits, skills, status, family, needs, activity, rng, plan)| Row {
                 id: *id,
@@ -413,25 +427,30 @@ fn decide(
         )
         .collect();
     rows.sort_unstable_by_key(|r| r.id);
+    parallel::for_each(&mut rows, *threads, |row| step(row, &context));
+    drop(rows);
 
-    let adult_age = founding.adult_age;
-    let is_child = |r: &Row| r.person.age_years(now, context.turns_per_year) < adult_age;
-    let mut adults: Vec<&mut Row> = rows
-        .iter_mut()
-        .filter(|r| r.activity.until != u64::MAX && !is_child(r))
+    // Children follow the decisions just made. They are due once a day.
+    let child_due = |person: &Person, activity: &Activity| {
+        activity.until <= now && person.age_years(now, tpy) < adult_age
+    };
+    if !people
+        .iter()
+        .any(|(_, person, .., activity, _, _)| child_due(person, activity))
+    {
+        return;
+    }
+    let mut actions: Vec<(PersonId, ActionKind)> = people
+        .iter()
+        .map(|(id, .., activity, _, _)| (*id, activity.action))
         .collect();
-    parallel::for_each(&mut adults, *threads, |row| step(row, &context));
-
-    // Children follow the decisions just made.
-    let actions: Vec<(PersonId, ActionKind)> =
-        rows.iter().map(|r| (r.id, r.activity.action)).collect();
+    actions.sort_unstable_by_key(|a| a.0);
     let day_end = now - now % TURNS_PER_DAY + TURNS_PER_DAY - 1;
-    for row in rows.iter_mut() {
-        if row.activity.until > now || !is_child(row) {
+    for (_, person, _, _, _, family, _, mut activity, _, _) in &mut people {
+        if !child_due(person, &activity) {
             continue;
         }
-        let mother = row
-            .family
+        let mother = family
             .mother
             .and_then(|m| actions.binary_search_by_key(&m, |&(id, _)| id).ok())
             .map(|i| actions[i].1);
@@ -439,7 +458,7 @@ fn decide(
             Some(a) if catalog.get(a).is_some_and(|a| a.children) => a,
             _ => ActionKind::Idle,
         };
-        *row.activity = Activity {
+        *activity = Activity {
             action,
             since: now,
             until: day_end,

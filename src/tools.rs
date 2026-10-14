@@ -19,7 +19,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleConfigs;
 use bevy_ecs::system::ScheduleSystem;
 
-use crate::city::CityId;
+use crate::city::{CityId, Population};
 use crate::economy::{Outlook, Stores};
 use crate::people::{ActionKind, Activity, Person, PersonId, Skills};
 use crate::tech::{TechId, TechTree};
@@ -59,6 +59,7 @@ pub fn systems() -> ScheduleConfigs<ScheduleSystem> {
 struct ToolsFile {
     items: Vec<ItemFile>,
     reserve_per_mille: u32,
+    spare_per_mille: u32,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -97,6 +98,10 @@ pub struct ToolCatalog {
     /// A city is short of an item while its stores hold fewer than this
     /// share (per mille) of the workers it would help.
     pub reserve_per_mille: u32,
+    /// With nothing short, crafters keep making spares only while the
+    /// stores hold fewer of an item than this share (per mille) of the
+    /// city's people; then they stop.
+    pub spare_per_mille: u32,
 }
 
 impl ToolCatalog {
@@ -123,6 +128,7 @@ impl ToolCatalog {
                 })
                 .collect(),
             reserve_per_mille: file.reserve_per_mille,
+            spare_per_mille: file.spare_per_mille,
         }
     }
 
@@ -215,7 +221,7 @@ pub fn daily_tools(
         &Skills,
         &mut Equipment,
     )>,
-    mut cities: Query<(&CityId, &mut Stores, &mut Outlook)>,
+    mut cities: Query<(&CityId, &Population, &mut Stores, &mut Outlook)>,
 ) {
     if turn.0 % TURNS_PER_DAY != WORK_TURN || catalog.items.is_empty() {
         return;
@@ -236,7 +242,7 @@ pub fn daily_tools(
     rows.sort_by_key(|(id, ..)| **id);
     let mut next = 0;
     let mut crafters: Vec<(Entity, u32)> = Vec::new();
-    for (city, stores, outlook) in rows.iter_mut() {
+    for (city, population, stores, outlook) in rows.iter_mut() {
         while next < workers.len() && workers[next].0 < **city {
             next += 1;
         }
@@ -284,7 +290,15 @@ pub fn daily_tools(
                 let Ok((_, _, _, _, skills, _)) = people.get(entity) else {
                     continue;
                 };
-                let Some(i) = choose(&makers, &stand_ins, &skills.0, &wanted, &stores.items) else {
+                let spare = (population.count * u64::from(catalog.spare_per_mille) / 1000) as u32;
+                let Some(i) = choose(
+                    &makers,
+                    &stand_ins,
+                    &skills.0,
+                    &wanted,
+                    spare,
+                    &stores.items,
+                ) else {
                     continue;
                 };
                 progress[i] += labour;
@@ -361,8 +375,10 @@ fn wear(catalog: &ToolCatalog, equipment: &mut Equipment, action: ActionKind, da
 }
 
 /// What a crafter makes: the most valued item they know how to make that
-/// the city is short of; if it is short of none, the most valued one that
-/// helps anyone working there; otherwise the most valued they know.
+/// the city is short of; if it is short of none, a spare of the most valued
+/// one that helps anyone working there, or else of the most valued they
+/// know, while the stores hold fewer than `spare` of it; otherwise nothing
+/// (stores do not grow without end).
 ///
 /// The city is short of an item while it holds fewer than `wanted` of it
 /// and of the items that stand in for it (see [`ToolCatalog::stand_ins`]):
@@ -373,6 +389,7 @@ fn choose(
     stand_ins: &[Vec<usize>],
     skills: &crate::tech::Knowledge,
     wanted: &[u32],
+    spare: u32,
     stock: &[u32],
 ) -> Option<usize> {
     let known = || {
@@ -383,8 +400,8 @@ fn choose(
     let held = |i: usize| stand_ins[i].iter().map(|&j| stock[j]).sum::<u32>();
     known()
         .find(|&i| held(i) < wanted[i])
-        .or_else(|| known().find(|&i| wanted[i] > 0))
-        .or_else(|| known().next())
+        .or_else(|| known().find(|&i| wanted[i] > 0 && held(i) < spare))
+        .or_else(|| known().find(|&i| held(i) < spare))
 }
 
 /// Feeds this module's state (stores of items, tools carried, unfinished

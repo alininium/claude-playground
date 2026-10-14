@@ -34,7 +34,8 @@ status, a family and their own random-number stream. Settlements start as
 households of 50–500 people depending on their kind and the fertility of
 their land. [docs/PEOPLE.md](docs/PEOPLE.md) describes the design and the
 modules being built on it: needs, decisions, food, tools, life cycle,
-statuses and caravans.
+statuses and caravans. `cargo run --release --example society -- [seed] [years]` prints how a
+world's people fare year by year.
 
 **[docs/MODEL.md](docs/MODEL.md)** documents every formula: which physical
 laws and published methods it is built on, and which effects and constants

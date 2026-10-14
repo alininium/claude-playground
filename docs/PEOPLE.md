@@ -100,6 +100,42 @@ parallel:
 - **`Population::pending_deaths`**: deaths a disaster owes a city; the
   census picks who dies. `life` may reuse or replace this.
 
+## Contracts found while merging
+
+These come from how the modules turned out. Keep them in mind when changing
+any of them.
+
+- **Night is sleep.** On the Night turn `decide` sets every available
+  person's activity to Sleep and records the day's action in
+  `decide::Plan::last`. A resolve step that acts on "what people did today"
+  should run on waking turns or read `Plan::last`, as `caravan` does: a
+  caravan leaves with the adults whose `Plan::last` is SettleAway, and their
+  `Plan::last` is cleared when they go, so they don't leave again on
+  arrival.
+- **Travellers.** People with a caravan have `Activity::until ==
+  u64::MAX`, and their `Person::home` is the caravan's id plus
+  `caravan::TRAVELLING` (2³¹), which no city has. Never index a city
+  table by `home` without a bounds check; use `caravan::is_travelling`.
+- **Everyone's stream moves.** `life` rolls survival from each person's
+  own `PersonRng` daily, so tests should check behaviour (activities,
+  needs), not that a stream stayed untouched.
+- **Fire and shelter.** Warmth grows 4 a day per °C of night below 12 °C,
+  and a night by the fire takes back 200, so only ice-sheet or tundra cold
+  overwhelms people. With the first draft's 12 and 60, a fifth of the
+  founders' children died of cold in the first year.
+- **Spare tools.** With nothing short, crafters only make spares until a
+  city holds half as many of an item as it has people (`spare_per_mille`).
+  Without that limit, stores grew by thousands of tools a year.
+- **Tests that pin people.** To hold people to an action, set
+  `Activity::until` far ahead (not `u64::MAX`, which means away) and raise
+  `decide::ActionCatalog::urgent` above 1000, or they re-decide as soon as
+  a need becomes urgent.
+
+`cargo run --release --example society -- [seed] [years]` prints a yearly
+summary: people, births, deaths, food, land, crafting, statuses and tools.
+It's the quickest way to see whether the modules still add up to a
+plausible society.
+
 ## Starting state
 
 Settlements start with 200–500 (civilized) or 50–200 (barbarian) people,
