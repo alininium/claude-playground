@@ -43,6 +43,10 @@ pub const SNOW_COVER: u32 = 500;
 pub const GLACIER: u32 = 10_000;
 /// Albedo cooling of a glacier, tenths of a degree.
 pub const GLACIER_COOLING: i64 = 40;
+/// Years per step when settling the ice sheets before turn 0. Two years
+/// halve the cost of one-year steps and move the settled ice volume by
+/// about 0.1%, as much as the settling tolerance itself.
+const SETTLE_STEP_YEARS: u32 = 2;
 
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
@@ -205,16 +209,17 @@ impl Cryosphere {
         }
     }
 
-    /// Runs the glacier model forward in steps of one year until the ice
-    /// stops changing (or for `max_years`), with a fixed yearly surface mass
-    /// balance per tile (tenths of a millimeter of ice; see
+    /// Runs the glacier model forward in steps of [`SETTLE_STEP_YEARS`] until
+    /// the ice stops changing (or for `max_years`), with a fixed yearly
+    /// surface mass balance per tile (tenths of a millimeter of ice; see
     /// `Climate::glacier_mass_balance`). Flow and calving are the daily ones
-    /// times the days of a year, so the ice ends up where the daily model
-    /// keeps it. Returns the years it took.
+    /// times the days of a step, so the ice ends up where the daily model
+    /// keeps it (the equilibrium does not depend on the step length). Returns
+    /// the years it took.
     ///
     /// Ice sheets take thousands of years to settle, far too long to
-    /// simulate day by day before turn 0; a year-long step is stable here
-    /// because a tile sheds at most 8 · 364 / 20000 ≈ 15% of its excess over
+    /// simulate day by day before turn 0; a two-year step is stable here
+    /// because a tile sheds at most 8 · 728 / 20000 ≈ 29% of its excess over
     /// its neighbors per step.
     pub(crate) fn settle_glaciers(
         &mut self,
@@ -228,17 +233,36 @@ impl Cryosphere {
         let land = |i: usize| matches!(map.tiles()[i].water, Water::Dry | Water::River);
         let mut g: Vec<i64> = self.tiles.iter().map(|f| i64::from(f.glacier)).collect();
         let mut delta = vec![0i64; n];
+        // Each tile's land neighbors (a bit per offset) and number of water
+        // neighbors, looked up once instead of every year.
+        let w = map.width() as isize;
+        let offsets = [-w - 1, -w, -w + 1, -1, 1, w - 1, w, w + 1];
+        let mut land_mask = vec![0u8; n];
+        let mut water_neighbors = vec![0i64; n];
+        for i in 0..n {
+            for nb in map.neighbors(i) {
+                if land(nb) {
+                    let offset = nb as isize - i as isize;
+                    let bit = offsets.iter().position(|&o| o == offset).unwrap();
+                    land_mask[i] |= 1 << bit;
+                } else {
+                    water_neighbors[i] += 1;
+                }
+            }
+        }
         // Tiles that may change: those with ice or a positive balance, and
         // their neighbors. `stamp` dedupes them.
         let mut stamp = vec![u32::MAX; n];
         let mut active: Vec<usize> = (0..n)
             .filter(|&i| land(i) && (g[i] > 0 || balance[i] > 0))
             .collect();
+        let mut touched = Vec::with_capacity(active.len() * 2);
         let mut years = 0;
         let mut last_volume = -1;
+        let step = i64::from(SETTLE_STEP_YEARS);
         while years < max_years {
-            years += 1;
-            let mut touched = Vec::with_capacity(active.len() * 2);
+            years += SETTLE_STEP_YEARS;
+            touched.clear();
             let mut touch = |i: usize, touched: &mut Vec<usize>| {
                 if stamp[i] != years {
                     stamp[i] = years;
@@ -250,26 +274,25 @@ impl Cryosphere {
                 if g[i] == 0 {
                     continue;
                 }
-                for nb in map.neighbors(i) {
-                    match map.tiles()[nb].water {
-                        Water::Ocean | Water::Lake => delta[i] -= calving(g[i]) * days,
-                        _ => {
-                            let flux = creep(g[i], g[nb]) * days;
-                            if flux > 0 {
-                                delta[i] -= flux;
-                                delta[nb] += flux;
-                                touch(nb, &mut touched);
-                            }
-                        }
+                delta[i] -= calving(g[i]) * days * step * water_neighbors[i];
+                let mut mask = land_mask[i];
+                while mask != 0 {
+                    let nb = (i as isize + offsets[mask.trailing_zeros() as usize]) as usize;
+                    mask &= mask - 1;
+                    let flux = creep(g[i], g[nb]) * days * step;
+                    if flux > 0 {
+                        delta[i] -= flux;
+                        delta[nb] += flux;
+                        touch(nb, &mut touched);
                     }
                 }
             }
             for &i in &touched {
-                g[i] = (g[i] + delta[i] + balance[i]).max(0);
+                g[i] = (g[i] + delta[i] + balance[i] * step).max(0);
                 delta[i] = 0;
             }
             touched.retain(|&i| g[i] > 0 || balance[i] > 0);
-            active = touched;
+            std::mem::swap(&mut active, &mut touched);
             // Settled once the total changes by under 0.1% (plus 10 cm per
             // tile) in a century. Single tiles at the edges never quite
             // stop: they flicker by a few centimeters, because the daily
@@ -311,9 +334,14 @@ fn precipitation_step(rate: u16, quarters: i64, quarters_per_year: i64) -> i64 {
 
 /// Advances the snow and glacier of one land tile by one quarter-day, as
 /// [`Cryosphere::step`] does; for probes run outside the real cryosphere.
-pub(crate) fn step_land_quarter(f: &mut Frozen, temperature: i64, rate: u16, days_per_year: u32) {
-    let per_year = i64::from(days_per_year.max(1)) * 4;
-    land(f, temperature, 1, precipitation_step(rate, 1, per_year));
+pub(crate) fn step_land_quarter(f: &mut Frozen, temperature: i64, precipitation: i64) {
+    land(f, temperature, 1, precipitation);
+}
+
+/// Precipitation of one quarter-day at `rate` mm per year, in tenths of a
+/// millimeter: the `precipitation` [`step_land_quarter`] takes.
+pub(crate) fn quarter_precipitation(rate: u16, days_per_year: u32) -> i64 {
+    precipitation_step(rate, 1, i64::from(days_per_year.max(1)) * 4)
 }
 
 /// Daily creep of ice `g` thick toward a neighbor with `other` (tenths of a

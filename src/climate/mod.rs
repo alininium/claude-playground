@@ -224,35 +224,31 @@ impl Climate {
         for (d, &lat) in self.daylight.iter_mut().zip(&self.latitudes) {
             *d = daylight::day_length_minutes(lat, day_of_year, self.days_per_year) as u16;
         }
-        for (i, d) in self.tile_daylight.iter_mut().enumerate() {
-            *d = self.daylight[i / self.width];
+        for (row, &d) in self
+            .tile_daylight
+            .chunks_mut(self.width)
+            .zip(&self.daylight)
+        {
+            row.fill(d);
         }
         if !neutral {
             let profiles = &self.profiles;
             self.weather
                 .update(day, self.width as u32, |i| profiles[i].weather_amplitude);
         }
-        // Seasonal rain peaks about a month after the northern summer solstice.
-        let year = i64::from(self.days_per_year);
-        let phase = (i64::from(day_of_year) - (year / 4 + 30)) * trig::FULL_TURN / year;
-        let season = trig::cos(phase);
+        let season = rain_season(day_of_year, self.days_per_year);
         for (i, (rate, p)) in self
             .precipitation
             .iter_mut()
             .zip(&self.profiles)
             .enumerate()
         {
-            let seasonal = 1000 + i64::from(p.rain_seasonality) * season / ONE;
-            let oscillation = (1000 + osc * i64::from(p.rain_oscillation) / ONE).clamp(200, 3000);
             let weather = if neutral {
                 1000
             } else {
-                i64::from(self.weather.precipitation_factor(i))
+                self.weather.precipitation_factor(i)
             };
-            let r = i64::from(p.base_precipitation) * seasonal / 1000 * oscillation / 1000
-                * weather
-                / 1000;
-            *rate = r.clamp(0, i64::from(u16::MAX)) as u16;
+            *rate = precipitation_rate(p, season, osc, weather);
         }
     }
 
@@ -268,14 +264,29 @@ impl Climate {
             let mut night = vec![0i16; self.temperature.len()];
             for day in 0..self.days_per_year {
                 self.start_day(u64::from(day), true);
-                for (i, t) in self.temperature.iter_mut().enumerate() {
-                    let p = &self.profiles[i];
-                    let mean = daily_mean_temperature(p, day, self.days_per_year, 0, 0)
-                        - self.cryosphere.albedo_cooling(i);
-                    *t = clamp16(mean);
-                    let scale = diurnal_scale(self.tile_daylight[i]);
-                    night[i] =
-                        clamp16(mean - i64::from(p.diurnal_range) * scale / 1000 * 400 / 1000);
+                // `daily_mean_temperature`, with the seasonal cosine computed
+                // once per distinct lag and the daily-cycle scale once per row.
+                let midday = i64::from(day) * 4 + 1;
+                let mut season_by_lag = [None; 128];
+                let rows = self
+                    .temperature
+                    .chunks_mut(self.width)
+                    .zip(night.chunks_mut(self.width))
+                    .zip(&self.daylight);
+                for (row, ((temps, nights), &daylight)) in rows.enumerate() {
+                    let scale = diurnal_scale(daylight);
+                    let start = row * self.width;
+                    for (x, (t, n)) in temps.iter_mut().zip(nights).enumerate() {
+                        let i = start + x;
+                        let p = &self.profiles[i];
+                        let lag = usize::from(p.seasonal_lag_days).min(127);
+                        let season = *season_by_lag[lag]
+                            .get_or_insert_with(|| seasonal_cosine(p, midday, self.days_per_year));
+                        let mean =
+                            mean_with_season(p, season, 0, 0) - self.cryosphere.albedo_cooling(i);
+                        *t = clamp16(mean);
+                        *n = clamp16(mean - i64::from(p.diurnal_range) * scale / 1000 * 400 / 1000);
+                    }
                 }
                 self.step_water(map, TURNS_PER_DAY as u32);
                 self.soil.route(map);
@@ -321,8 +332,7 @@ impl Climate {
     /// in neutral years with the daily cycle and weather of a real run and
     /// glacier albedo. Measured on a probe, a copy of each land tile's snow
     /// with a thick glacier underneath, stepped turn by turn like the real
-    /// run and averaged over a few years of weather. The weather and
-    /// precipitation are restored afterwards.
+    /// run and averaged over a few years of weather.
     fn glacier_mass_balance(&mut self, map: &Map) -> Vec<i64> {
         const PROBE: u32 = 2_000_000;
         const YEARS: u64 = 3;
@@ -339,34 +349,53 @@ impl Climate {
             .collect();
         let mass = |f: &Frozen| i64::from(f.snow) + i64::from(f.glacier);
         let before: Vec<i64> = probe.iter().map(mass).collect();
-        let saved = (self.weather.clone(), self.precipitation.clone());
+        // Only the probe tiles' weather and precipitation are needed, so
+        // they are sampled tile by tile (with the formulas of
+        // `start_day_with`) instead of updating the whole map.
+        let rows = self.latitudes.len();
         for day in 0..u64::from(self.days_per_year) * YEARS {
-            self.start_day_with(day, true, 0);
-            for quarter in 0..TURNS_PER_DAY {
-                let date = Date::from_turn(day * TURNS_PER_DAY + quarter, self.days_per_year);
-                let now = quarter_day(&date);
-                let share = diurnal_share(date.time_of_day);
-                let mut season_by_lag = [None; 128];
-                for (f, &i) in probe.iter_mut().zip(&land) {
-                    let profile = &self.profiles[i];
-                    let scale = diurnal_scale(self.daylight[i / self.width]);
-                    let lag = usize::from(profile.seasonal_lag_days).min(127);
-                    let season = *season_by_lag[lag]
-                        .get_or_insert_with(|| seasonal_cosine(profile, now, self.days_per_year));
-                    let temp = mean_with_season(profile, season, 0, 0)
-                        + i64::from(profile.diurnal_range) * scale / 1000 * share / 1000
-                        - cryosphere::GLACIER_COOLING
-                        + i64::from(self.weather.temperature(i));
-                    cryosphere::step_land_quarter(
-                        f,
-                        i64::from(clamp16(temp)),
-                        self.precipitation[i],
+            let day_of_year = (day % u64::from(self.days_per_year)) as u32;
+            let row_scale: Vec<i64> = (0..rows)
+                .map(|y| {
+                    let minutes = daylight::day_length_minutes(
+                        self.latitudes[y],
+                        day_of_year,
                         self.days_per_year,
                     );
+                    diurnal_scale(minutes as u16)
+                })
+                .collect();
+            let field = self.weather.day_field(day, self.width as u32);
+            let rain_season = rain_season(day_of_year, self.days_per_year);
+            // Probe tiles are independent, so each runs its four quarters
+            // back to back; the day's weather, precipitation and day length
+            // are fixed within a day.
+            let quarters: [(i64, i64); TURNS_PER_DAY as usize] = std::array::from_fn(|q| {
+                let date = Date::from_turn(day * TURNS_PER_DAY + q as u64, self.days_per_year);
+                (quarter_day(&date), diurnal_share(date.time_of_day))
+            });
+            let mut season_by_lag = [[None; 128]; TURNS_PER_DAY as usize];
+            for (f, &i) in probe.iter_mut().zip(&land) {
+                let profile = &self.profiles[i];
+                let (weather, rain) = field.at(i, profile.weather_amplitude);
+                let diurnal = i64::from(profile.diurnal_range) * row_scale[i / self.width] / 1000;
+                let base =
+                    i64::from(profile.mean) - cryosphere::GLACIER_COOLING + i64::from(weather);
+                let lag = usize::from(profile.seasonal_lag_days).min(127);
+                let snowfall = cryosphere::quarter_precipitation(
+                    precipitation_rate(profile, rain_season, 0, rain),
+                    self.days_per_year,
+                );
+                for ((now, share), cache) in quarters.iter().zip(&mut season_by_lag) {
+                    let season = *cache[lag]
+                        .get_or_insert_with(|| seasonal_cosine(profile, *now, self.days_per_year));
+                    // `mean_with_season` without oscillation and drift.
+                    let seasonal = i64::from(profile.seasonal_amplitude) * season / ONE;
+                    let temp = base + seasonal + diurnal * share / 1000;
+                    cryosphere::step_land_quarter(f, i64::from(clamp16(temp)), snowfall);
                 }
             }
         }
-        (self.weather, self.precipitation) = saved;
         let mut balance = vec![0; map.tiles().len()];
         for ((&i, f), b) in land.iter().zip(&probe).zip(&before) {
             balance[i] = (mass(f) - b) / YEARS as i64;
@@ -575,6 +604,24 @@ impl Climate {
                 | u64::from(self.volcanic_cooling[1] as u16),
         );
     }
+}
+
+/// Seasonal rain cycle (fixed point cosine) on a day of the year: peaks
+/// about a month after the northern summer solstice.
+fn rain_season(day_of_year: u32, days_per_year: u32) -> i64 {
+    let year = i64::from(days_per_year);
+    trig::cos((i64::from(day_of_year) - (year / 4 + 30)) * trig::FULL_TURN / year)
+}
+
+/// Precipitation rate of a tile, mm per year, given the [`rain_season`],
+/// the oscillation index and the weather's precipitation factor (per mille).
+fn precipitation_rate(p: &TileClimate, season: i64, osc: i64, weather: u16) -> u16 {
+    let seasonal = 1000 + i64::from(p.rain_seasonality) * season / ONE;
+    let oscillation = (1000 + osc * i64::from(p.rain_oscillation) / ONE).clamp(200, 3000);
+    let r = i64::from(p.base_precipitation) * seasonal / 1000 * oscillation / 1000
+        * i64::from(weather)
+        / 1000;
+    r.clamp(0, i64::from(u16::MAX)) as u16
 }
 
 /// Long-term mean precipitation for a moisture index (0-1000), mm per year:
