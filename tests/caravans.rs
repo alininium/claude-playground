@@ -449,3 +449,73 @@ fn a_caravan_that_takes_the_last_knowers_leaves_the_city_without_the_technology(
     });
     assert!(lost, "{:?}", sim.journal().entries());
 }
+
+/// Removes every person whose home is `city` (nobody on the road counts).
+fn empty_city(sim: &mut Simulation, city: CityId) {
+    let world = sim.world_mut();
+    let mut query = world.query::<(bevy_ecs::entity::Entity, &societies::people::Person)>();
+    let gone: Vec<_> = query
+        .iter(world)
+        .filter(|(_, p)| p.home == city)
+        .map(|(e, _)| e)
+        .collect();
+    for e in gone {
+        world.despawn(e);
+    }
+}
+
+fn abandoned(sim: &Simulation) -> Vec<CityId> {
+    sim.events()
+        .events()
+        .iter()
+        .filter_map(|e| match e {
+            SimEvent::CityAbandoned { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_city_whose_people_are_all_gone_is_abandoned() {
+    let mut sim = common::sim(Fixture::Small);
+    let before = sim.cities();
+    let gone = before[1].id;
+    empty_city(&mut sim, gone);
+    sim.step();
+    assert_eq!(abandoned(&sim), vec![gone]);
+    let after = sim.cities();
+    assert_eq!(after.len(), before.len() - 1);
+    assert!(after.iter().all(|c| c.id != gone));
+    // The rest carry on, and nobody holds its land as their own any more.
+    days(&mut sim, 2);
+    assert_eq!(abandoned(&sim), vec![gone]);
+    let own = sim.map().index(before[1].position) as u32;
+    let world = sim.world_mut();
+    let mut query = world.query::<&societies::economy::Territory>();
+    let homes: Vec<u32> = query.iter(world).map(|t| t.tiles[0].index).collect();
+    assert_eq!(homes.len(), before.len() - 1);
+    assert!(!homes.contains(&own));
+}
+
+#[test]
+fn a_city_waits_for_its_caravan_to_come_home() {
+    let mut sim = common::sim(Fixture::Small);
+    sim.world_mut().resource_mut::<CaravanConfig>().max_days = 2;
+    let city = CityId(0);
+    let adults = choose_to_leave(&mut sim, city, 6);
+    days(&mut sim, 1);
+    assert_eq!(caravan::caravans(sim.world_mut()).len(), 1);
+    // Everybody who stayed behind is gone.
+    empty_city(&mut sim, city);
+    days(&mut sim, 1);
+    assert!(
+        abandoned(&sim).is_empty(),
+        "abandoned with its caravan away"
+    );
+    // The caravan gives up and comes home to it.
+    days(&mut sim, 3);
+    assert!(caravan::caravans(sim.world_mut()).is_empty());
+    assert!(abandoned(&sim).is_empty());
+    let home = sim.cities().into_iter().find(|c| c.id == city).unwrap();
+    assert!(home.population >= adults.len() as u64);
+}

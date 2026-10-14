@@ -104,7 +104,9 @@ parallel:
 - **`city::NextCityId`** and **`people::NextPersonId`**: allocate ids for
   new cities (caravans) and people (births).
 - **`Population::pending_deaths`**: deaths a disaster owes a city; the
-  census picks who dies. `life` may reuse or replace this.
+  census picks who dies. The census also abandons (despawns) a city left
+  with nobody once none of its caravans is on the road, so code holding a
+  `CityId` must allow for the city to be gone. `life` may reuse or replace this.
 
 ## Contracts found while merging
 

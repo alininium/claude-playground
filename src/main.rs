@@ -154,6 +154,15 @@ fn main() -> ExitCode {
                     position.x,
                     position.y
                 ),
+                SimEvent::CityAbandoned {
+                    turn,
+                    id,
+                    name,
+                    position,
+                } => println!(
+                    "turn {turn:>4}: #{} {name} at ({}, {}) abandoned",
+                    id.0, position.x, position.y
+                ),
                 SimEvent::Eruption {
                     turn,
                     name,

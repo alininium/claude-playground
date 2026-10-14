@@ -34,7 +34,10 @@ pub mod status;
 
 use bevy_ecs::prelude::*;
 
-use crate::city::{CityId, Population};
+use crate::caravan::Caravan;
+use crate::city::{City, CityId, Population};
+use crate::events::{EventLog, SimEvent};
+use crate::map::Position;
 use crate::tech::Knowledge;
 use crate::time::Turn;
 use rng::PersonRng;
@@ -344,7 +347,10 @@ pub fn install(world: &mut World) {
 }
 
 /// The last step of every turn: carries out deaths owed by disasters (see
-/// [`Population::pending_deaths`]) and counts each city's people.
+/// [`Population::pending_deaths`]) and counts each city's people. A city
+/// left with nobody, and with no caravan of its own still on the road
+/// (they come back to it if they give up), is abandoned: it disappears and
+/// its land is free for others.
 ///
 /// Who dies is decided by a hash of each resident's seed and the turn, so it
 /// is deterministic and nobody's own random stream is touched.
@@ -352,11 +358,13 @@ pub fn census(
     mut commands: Commands,
     turn: Res<Turn>,
     people: Query<(Entity, &PersonId, &Person, &PersonRng)>,
-    mut cities: Query<(&CityId, &mut Population)>,
+    mut cities: Query<(Entity, &CityId, &mut Population, &City, &Position)>,
+    caravans: Query<&Caravan>,
+    mut log: ResMut<EventLog>,
 ) {
     let slots = cities
         .iter()
-        .map(|(id, _)| id.0 as usize + 1)
+        .map(|(_, id, ..)| id.0 as usize + 1)
         .max()
         .unwrap_or(0);
     let mut counts = vec![0u64; slots];
@@ -365,7 +373,8 @@ pub fn census(
             *c += 1;
         }
     }
-    for (city, mut population) in &mut cities {
+    let mut abandoned = Vec::new();
+    for (entity, city, mut population, info, position) in &mut cities {
         let mut count = counts[city.0 as usize];
         if population.pending_deaths > 0 {
             let mut residents: Vec<(u64, PersonId, Entity)> = people
@@ -384,6 +393,19 @@ pub fn census(
         if population.count != count {
             population.count = count;
         }
+        if count == 0 && !caravans.iter().any(|c| c.origin == *city) {
+            abandoned.push((*city, entity, info.name.clone(), *position));
+        }
+    }
+    abandoned.sort_by_key(|a| a.0);
+    for (id, entity, name, position) in abandoned {
+        log.push(SimEvent::CityAbandoned {
+            turn: turn.0,
+            id,
+            name,
+            position,
+        });
+        commands.entity(entity).despawn();
     }
 }
 

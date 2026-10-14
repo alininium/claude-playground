@@ -37,13 +37,16 @@ fn main() {
         if year % every == 0 || year == years {
             let people = sim.people().len();
             let cities = sim.cities();
-            let known: usize = cities.iter().map(|c| c.knowledge.count()).sum();
+            let living: Vec<_> = cities.iter().filter(|c| c.population > 0).collect();
+            let known: usize = living.iter().map(|c| c.knowledge.count()).sum();
+            let largest = living.iter().map(|c| c.population).max().unwrap_or(0);
             let v = sim.world().resource::<Vitals>().clone();
             writeln!(
                 out,
-                "year {year:>4}: {people:>6} people in {:>3} cities, {:.1} technologies per city, {} births and {} deaths so far, {:.0} s",
-                cities.len(),
-                known as f64 / cities.len().max(1) as f64,
+                "year {year:>4}: {people:>6} people in {:>3} cities ({} empty, largest {largest}), {:.1} technologies per living city, {} births and {} deaths so far, {:.0} s",
+                living.len(),
+                cities.len() - living.len(),
+                known as f64 / living.len().max(1) as f64,
                 v.births,
                 v.deaths,
                 start.elapsed().as_secs_f64()
