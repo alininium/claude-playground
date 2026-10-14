@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Runs the test categories that matter for your changes, in parallel.
 #
-# Usage: tools/test.sh [auto | all | core | climate | events | slow]...
+# Usage: tools/test.sh [auto | all | core | people | climate | events | slow]...
 #
 #   auto     (default) core, plus the categories touched by the changes
 #            since this branch left main: commits, uncommitted edits and
 #            new files.
-#   all      core, climate and events: everything `cargo test` runs except
-#            the century-long run.
+#   all      core, people, climate and events: everything `cargo test`
+#            runs except the century-long run.
 #   core     unit tests, determinism, save/load, terrain, cities,
 #            technologies. A few seconds.
+#   people   people: households, needs, decisions, food, tools, life,
+#            statuses, caravans.
 #   climate  climate, climate dynamics, biomes.
 #   events   climate journal, volcanoes.
 #   slow     release build: the century and millennium runs and the
@@ -24,6 +26,7 @@ cd "$(dirname "$0")/.."
 
 declare -A TARGETS=(
   [core]="--lib determinism save_load terrain cities technologies"
+  [people]="people decisions economy tools life status caravans"
   [climate]="climate climate_dynamics biomes"
   [events]="journal volcanoes"
 )
@@ -31,10 +34,17 @@ declare -A TARGETS=(
 # Which categories a changed path affects (core always runs).
 categories_for() {
   case "$1" in
-    src/climate/* | src/biome.rs | src/fertility.rs | src/map/*) echo climate events ;;
+    # The journal's famines and technologies come from the people; who is
+    # founded where, and what they know, shapes everything the people do.
+    src/people/* | src/economy.rs | src/tools.rs | src/caravan.rs | data/people.json) \
+      echo people events ;;
+    tests/people.rs | tests/decisions.rs | tests/economy.rs | tests/tools.rs \
+      | tests/life.rs | tests/status.rs | tests/caravans.rs) echo people ;;
+    src/city.rs | src/tech.rs | data/technologies.json) echo people events ;;
+    src/climate/* | src/biome.rs | src/fertility.rs | src/map/*) echo people climate events ;;
     src/volcano.rs | src/journal.rs | src/events.rs) echo events ;;
     src/lib.rs | src/config.rs | src/time.rs | src/rng.rs | Cargo.toml | Cargo.lock \
-      | tests/common/* | tests/fixtures/*) echo climate events ;;
+      | tests/common/* | tests/fixtures/*) echo people climate events ;;
     tests/climate.rs | tests/climate_dynamics.rs | tests/biomes.rs) echo climate ;;
     tests/journal.rs | tests/volcanoes.rs) echo events ;;
     tests/long_run.rs | tests/performance.rs) echo slow-hint ;;
@@ -63,17 +73,17 @@ for arg in "$@"; do
         case "$path" in src/climate/* | src/map/* | src/lib.rs | src/city.rs) hint=1 ;; esac
       done < <(changed_files)
       ;;
-    all) WANT[climate]=1; WANT[events]=1 ;;
-    core | climate | events) WANT[$arg]=1 ;;
+    all) WANT[people]=1; WANT[climate]=1; WANT[events]=1 ;;
+    core | people | climate | events) WANT[$arg]=1 ;;
     slow) slow=1 ;;
-    -h | --help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown category: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
 
 failed=0
 chosen=()
-for c in core climate events; do [ -n "${WANT[$c]:-}" ] && chosen+=("$c"); done
+for c in core people climate events; do [ -n "${WANT[$c]:-}" ] && chosen+=("$c"); done
 echo "categories: ${chosen[*]}$([ $slow = 1 ] && echo ' slow')"
 
 # Build every chosen test binary once, then run them side by side.

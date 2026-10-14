@@ -507,8 +507,8 @@ pub fn volcanic_activity(
         hit.sort_by_key(|h| h.0);
         for (_, pop, d) in hit.iter_mut() {
             let share = lethality(vei) * (1000 - (*d as u64) * 500 / (radius as u64 + 1)) / 1000;
-            let deaths = pop.count * share / 1000;
-            pop.count -= deaths;
+            let deaths = (pop.count - pop.pending_deaths) * share / 1000;
+            pop.pending_deaths += deaths;
             casualties += deaths;
         }
 

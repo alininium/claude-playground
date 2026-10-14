@@ -44,9 +44,18 @@ fn a_world_saved_mid_run_continues_exactly() {
     assert_eq!(original.world_digest(), resumed.world_digest());
     original.run(2000);
     resumed.run(2000);
-    // Cities are refounded on load, but the world itself carries on exactly.
+    // Cities are refounded on load, but the world itself carries on exactly
+    // (the journal's society entries are about the cities, so they differ).
     assert_eq!(original.world_digest(), resumed.world_digest());
-    assert_eq!(original.journal().entries(), resumed.journal().entries());
+    let world_entries = |sim: &Simulation| {
+        sim.journal()
+            .entries()
+            .iter()
+            .filter(|e| !e.happening.is_society())
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(world_entries(&original), world_entries(&resumed));
 }
 
 #[test]

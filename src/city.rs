@@ -1,4 +1,5 @@
-//! Cities and barbarian tribes: founding and population growth.
+//! Cities and barbarian tribes: where they are founded and how big they
+//! start. Their people live in `people`.
 
 use bevy_ecs::prelude::*;
 
@@ -17,6 +18,10 @@ use crate::tech::{Site, TechTree};
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CityId(pub u32);
 
+/// The next [`CityId`] to hand out (for cities founded during play).
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct NextCityId(pub u32);
+
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 pub struct City {
     pub name: String,
@@ -24,40 +29,22 @@ pub struct City {
     pub people: People,
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+/// How many people live in a city (counted every turn from its people; see
+/// `people::census`).
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Population {
     pub count: u64,
-    /// Fractional growth carried between turns, in units of
-    /// `1 / (1000 · turns_per_year · capacity)` of a person. Keeps growth exact
-    /// without floating point.
-    pub growth_remainder: u64,
+    /// Deaths owed to a disaster (such as a volcano's ash) that the census
+    /// carries out at the end of the turn.
+    pub pending_deaths: u64,
 }
 
 impl Population {
     pub fn new(count: u64) -> Self {
         Self {
             count,
-            growth_remainder: 0,
+            pending_deaths: 0,
         }
-    }
-}
-
-/// Logistic growth in exact integer arithmetic. Per turn:
-/// `growth = pop · rate · (capacity − pop) / (capacity · 1000 · turns_per_year)`.
-pub fn grow_cities(config: Res<SimConfig>, mut cities: Query<&mut Population, With<City>>) {
-    let cap = config.city_carrying_capacity.max(1);
-    let denominator = u128::from(cap) * 1000 * u128::from(config.turns_per_year());
-    for mut pop in &mut cities {
-        if pop.count >= cap {
-            continue;
-        }
-        let headroom = cap - pop.count;
-        let numerator = u128::from(pop.count)
-            * u128::from(config.city_growth_per_mille_per_year)
-            * u128::from(headroom);
-        let total = u128::from(pop.growth_remainder) + numerator;
-        pop.count = (pop.count + (total / denominator) as u64).min(cap);
-        pop.growth_remainder = (total % denominator) as u64;
     }
 }
 
@@ -75,8 +62,8 @@ pub enum People {
     Barbarian,
 }
 
-/// Places the starting settlements when the world is created; none are
-/// founded during play. `turn` is the turn the world starts at (0 for a new
+/// Places the starting settlements when the world is created. Later ones
+/// are founded by caravans (see `caravan`). `turn` is the turn the world starts at (0 for a new
 /// world).
 ///
 /// First come `initial_cities` civilized cities, on sites like those of the
@@ -91,7 +78,7 @@ pub enum People {
 /// Each settlement starts with the technologies of the start year that suit
 /// its surroundings and its people (see [`TechTree::starting_knowledge`]),
 /// drawn from `tech_rng` so that changing the technology file never moves
-/// anything.
+/// anything. Its people (see `people::founding`) come from `people_rng`.
 #[allow(clippy::too_many_arguments)]
 pub fn found_initial_cities(
     world: &mut World,
@@ -104,6 +91,8 @@ pub fn found_initial_cities(
     tree: &TechTree,
     rng: &mut SimRng,
     tech_rng: &mut SimRng,
+    founding: &crate::people::founding::FoundingConfig,
+    people_rng: &mut SimRng,
 ) {
     let n = map.tile_count() as usize;
     let mut cradle: Vec<u64> = (0..n)
@@ -151,10 +140,7 @@ pub fn found_initial_cities(
         let name = generate_name(rng);
         let site = Site::of(map, biomes, index);
         let knowledge = tree.starting_knowledge(&site, people, tech_rng);
-        let population = match people {
-            People::Civilized => config.initial_city_population,
-            People::Barbarian => config.initial_barbarian_population,
-        };
+        let size = settlement_size(map, fertility, config, people, index);
         world
             .resource_mut::<EventLog>()
             .push(SimEvent::CityFounded {
@@ -164,6 +150,19 @@ pub fn found_initial_cities(
                 position: here,
                 people,
             });
+        crate::people::founding::spawn_settlement(
+            world,
+            &crate::people::founding::Settlement {
+                city: id,
+                size,
+                knowledge: &knowledge,
+                turn,
+                turns_per_year: config.turns_per_year(),
+            },
+            tree,
+            founding,
+            people_rng,
+        );
         world.spawn((
             id,
             City {
@@ -172,10 +171,35 @@ pub fn found_initial_cities(
                 people,
             },
             here,
-            Population::new(population),
+            Population::new(u64::from(size)),
             knowledge,
+            crate::economy::Stores::default(),
+            crate::economy::Outlook::default(),
         ));
     }
+    world.insert_resource(NextCityId(next_id));
+}
+
+/// How many people a settlement starts with: from the low to the high end of
+/// its kind's range (`city_population` or `barbarian_population`) with the
+/// mean fertility of its tile and neighbors.
+pub fn settlement_size(
+    map: &Map,
+    fertility: &Fertility,
+    config: &SimConfig,
+    people: People,
+    index: usize,
+) -> u32 {
+    let [lo, hi] = match people {
+        People::Civilized => config.city_population,
+        People::Barbarian => config.barbarian_population,
+    };
+    let tiles: Vec<u32> = std::iter::once(index)
+        .chain(map.neighbors(index))
+        .map(|i| u32::from(fertility.fertility(i)))
+        .collect();
+    let mean = tiles.iter().sum::<u32>() / tiles.len() as u32;
+    lo + hi.saturating_sub(lo) * mean.min(1000) / 1000
 }
 
 /// How much a site looks like those of the first cities around 4500 BCE

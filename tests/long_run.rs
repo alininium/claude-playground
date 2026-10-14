@@ -22,9 +22,13 @@ struct Year {
 /// returns one sample per year (taken at the start of each year).
 fn run(years: u64, seed: u64) -> Vec<Year> {
     let _ = seed;
-    let mut sim = common::sim(common::Fixture::Small);
+    // The climate's long-term stability, without people: a millennium of a
+    // growing population is a different (and much slower) test.
+    let mut sim = common::sim_with(common::Fixture::Small, |c| {
+        c.city_population = [0, 0];
+        c.barbarian_population = [0, 0];
+    });
     let tpy = sim.config().turns_per_year();
-    let cap = sim.config().city_carrying_capacity;
     let n = sim.map().tile_count() as usize;
     let area: Vec<i64> = (0..n)
         .map(|i| sim.map().area_weight(sim.map().position_of(i as u32).y))
@@ -73,9 +77,6 @@ fn run(years: u64, seed: u64) -> Vec<Year> {
         assert!(sample.sea_ice_pct < 30.0, "year {year}: {sample:?}");
         assert!(sample.glacier_pct < 50.0, "year {year}: {sample:?}");
         samples.push(sample);
-        for c in sim.cities() {
-            assert!(c.population <= cap);
-        }
     }
     samples
 }

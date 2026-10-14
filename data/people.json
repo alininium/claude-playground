@@ -1,0 +1,293 @@
+{
+  "format": "societies-people",
+  "version": 1,
+  "notes": [
+    "Tuning for people. Each section belongs to one module: founding (src/people/founding.rs), needs (src/people/needs.rs), actions (src/people/decide.rs), life (src/people/life.rs), status (src/people/status.rs), economy (src/economy.rs), tools (src/tools.rs), caravan (src/caravan.rs).",
+    "All numbers are integers. Shares and multipliers are per mille."
+  ],
+  "founding": {
+    "age_table": [
+      [0, 150], [5, 130], [10, 120], [15, 110], [20, 100], [25, 90], [30, 80],
+      [35, 70], [40, 50], [45, 40], [50, 30], [55, 20], [60, 10]
+    ],
+    "age_table_note": "[lowest age of a five-year band, per mille of people in it]: a pre-modern population with life expectancy around 30.",
+    "adult_age": 12,
+    "skill_share": 700,
+    "skill_share_note": "Each adult knows each of the city's non-baseline technologies with this chance (if they know its prerequisites). Children know the baseline.",
+    "marriage_age": { "female": 16, "male": 18 },
+    "max_husband_age_gap": 15,
+    "mother_age_at_birth": [15, 42],
+    "initial_needs_max": 300
+  },
+  "needs": {
+    "notes": [
+      "Urgency runs from 0 (satisfied) to 1000 (desperate). Needs are brought up to date once a day, at nightfall: they grow, the day's action satisfies some of them, then the night's sleep.",
+      "growth_per_day: how much each need grows in a day. Food is satisfied by eating (economy), family by partners and children (life), esteem by status (status); this module only grows them.",
+      "rest_awake_per_day: tiredness from a full waking day; night_sleep: what a night in shelter by the fire satisfies.",
+      "warmth: below comfort_tenths (tenths of a degree C, at night on the home tile) warmth grows per_degree_per_day for every degree; season_extra_per_day adds damp and short days per season (spring, summer, autumn, winter, as felt in the city's hemisphere).",
+      "safety: disaster_per_day extra growth while a disaster killed people in the city within the last disaster_days days."
+    ],
+    "growth_per_day": {
+      "food": 300, "rest": 0, "warmth": 0, "safety": 10,
+      "company": 60, "fun": 50, "esteem": 15, "family": 10
+    },
+    "rest_awake_per_day": 400,
+    "night_sleep": { "rest": 360, "warmth": 200 },
+    "warmth": {
+      "comfort_tenths": 120,
+      "per_degree_per_day": 4,
+      "season_extra_per_day": [0, 0, 10, 40]
+    },
+    "safety": { "disaster_per_day": 150, "disaster_days": 60 }
+  },
+  "actions": {
+    "notes": [
+      "One entry per action. serves: how much a day of it satisfies each need (also how strongly that need draws people to it; food, family and esteem are satisfied by economy, life and status, so for them it is only the draw). duration_turns: how long it lasts (a turn is a quarter day, the waking day is 3 turns; longer actions are resumed each morning).",
+      "Requirements: min_age; techs_any (knowing any one of these technology ids); land (the city has free land, or the person worked it yesterday); water (the city is on a river, lake or coast); unpartnered; parents (has children); settle_away (the city has no free land, few days of food, and the person has been hungry for a while). children: children may follow their mother in it.",
+      "traits: leaning toward the action, added to its score in full for a trait of 255 and subtracted in full for 0 (128 is neutral).",
+      "urgent: a need at or above this urgency that was not urgent when the current action was chosen makes a person decide again at once. noise: the random part of every score, 0 to this. pressing_food: hunger at which a day counts toward settle_away.hungry_days."
+    ],
+    "urgent": 850,
+    "noise": 80,
+    "pressing_food": 700,
+    "settle_away": { "hungry_days": 7, "max_food_days": 2 },
+    "catalog": {
+      "idle": { "serves": { "fun": 60 }, "duration_turns": 3, "children": true },
+      "sleep": { "serves": { "rest": 700, "warmth": 100 }, "duration_turns": 3, "children": true },
+      "rest": {
+        "serves": { "rest": 350, "fun": 100, "warmth": 150 }, "duration_turns": 3, "children": true,
+        "traits": { "conscientiousness": -60 }
+      },
+      "forage": {
+        "serves": { "food": 800 }, "duration_turns": 3, "min_age": 12, "techs_any": ["foraging"],
+        "traits": { "conscientiousness": 120 }
+      },
+      "farm": {
+        "serves": { "food": 900 }, "duration_turns": 3, "min_age": 12, "land": true,
+        "techs_any": ["cereal_cultivation", "root_crops"],
+        "traits": { "conscientiousness": 160, "openness": -40 }
+      },
+      "herd": {
+        "serves": { "food": 850 }, "duration_turns": 3, "min_age": 12, "land": true,
+        "techs_any": ["small_livestock", "cattle", "pastoral_nomadism"],
+        "traits": { "conscientiousness": 120, "boldness": 40 }
+      },
+      "fish": {
+        "serves": { "food": 820 }, "duration_turns": 3, "min_age": 12, "water": true,
+        "techs_any": ["rafts", "fishing_nets", "dugout_canoe"],
+        "traits": { "conscientiousness": 100, "boldness": 40 }
+      },
+      "craft": {
+        "serves": { "esteem": 250, "fun": 150 }, "duration_turns": 3, "min_age": 14,
+        "techs_any": ["stone_tools", "pottery", "weaving", "copper_smelting"],
+        "traits": { "openness": 200, "conscientiousness": 100 }
+      },
+      "build": {
+        "serves": { "warmth": 350, "safety": 250, "esteem": 100 }, "duration_turns": 7, "min_age": 14,
+        "techs_any": ["villages", "mudbrick", "carpentry"],
+        "traits": { "conscientiousness": 140 }
+      },
+      "socialize": {
+        "serves": { "company": 500, "fun": 400 }, "duration_turns": 3, "children": true,
+        "traits": { "extraversion": 300, "agreeableness": 80 }
+      },
+      "worship": {
+        "serves": { "safety": 500, "company": 150 }, "duration_turns": 3, "children": true,
+        "techs_any": ["ancestor_cults", "organized_religion"],
+        "traits": { "neuroticism": 120, "conscientiousness": 40, "openness": -40 }
+      },
+      "court": {
+        "serves": { "family": 600, "company": 200, "fun": 100 }, "duration_turns": 3, "min_age": 15,
+        "unpartnered": true, "traits": { "extraversion": 120, "boldness": 60 }
+      },
+      "care_for_children": {
+        "serves": { "family": 450, "company": 100 }, "duration_turns": 3, "min_age": 14, "parents": true,
+        "traits": { "agreeableness": 150 }
+      },
+      "settle_away": {
+        "serves": { "food": 700 }, "duration_turns": 3, "min_age": 16, "settle_away": true,
+        "traits": { "boldness": 450, "openness": 80, "neuroticism": -100 }
+      }
+    }
+  },
+  "life": {
+    "mortality": {
+      "infant_per_million": 300000,
+      "infant_decay_per_mille": 323,
+      "constant_per_million": 10000,
+      "senescent_age": 40,
+      "senescent_per_million": 3500,
+      "senescent_growth_per_mille": 1095,
+      "max_age": 110,
+      "mortality_note": "Siler hazards, yearly, per million: infant (mean over the first year, then x decay per year), constant, senescent (at senescent_age, x growth per year). Life expectancy at birth about 32, about 42 more years at 15.",
+      "disease_share": 700,
+      "hunger": { "threshold": 600, "extra_per_billion": 20000000 },
+      "cold": { "threshold": 600, "extra_per_billion": 10000000 },
+      "exposure_note": "Extra daily death chance, per billion, growing from 0 at threshold urgency to extra_per_billion at 1000: 2% a day when starving, 1% when freezing.",
+      "orphan_per_mille": 3000
+    },
+    "pairing": {
+      "female_age": [16, 45],
+      "male_age": [18, 65],
+      "daily_chance": 10,
+      "court_chance": 150,
+      "preferred_gap": 4,
+      "max_gap": 20,
+      "max_younger": 3,
+      "gap_penalty": 30,
+      "trait_penalty": 2000,
+      "court_bonus": 200,
+      "min_compatibility": 300
+    },
+    "fertility": {
+      "daily_chance_per_million": 2700,
+      "by_age": [[15, 300], [20, 850], [25, 1000], [30, 800], [35, 400], [40, 150], [45, 20], [50, 0]],
+      "by_age_note": "[lowest age, fecundity per mille of the peak].",
+      "pregnancy_days": 273,
+      "pregnancy_spread_days": 14,
+      "postpartum_days": 730,
+      "twins_per_mille": 15,
+      "maternal_death_per_mille": 10,
+      "male_births_per_mille": 512
+    },
+    "family": { "partner_daily": 100, "children_daily": 100, "care_per_turn": 150 }
+  },
+  "status": {
+    "notes": [
+      "Statuses in order of precedence: the first is the ordinary member, then the highest positions. A person holds one status; vacancies go to members or holders of lower statuses (not those held for life), best score first.",
+      "Positions: count (fixed) or per_mille of the city's adults, rounded. Score: sum of trait (0-255) times prefer weight per mille, plus per_year_of_age per year, plus inherited if a parent holds or held it, plus luck times a fixed per-person fortune (0-999) per mille.",
+      "esteem 0-1000: how much the status eases the Esteem need each day (esteem_relief at 1000). leaning is added to the score of an action; forbidden actions cannot be chosen."
+    ],
+    "adult_age": 15,
+    "learn_from_age": 5,
+    "review_days": 91,
+    "knowledge_days": 364,
+    "learn_days": 28,
+    "child_learning": 150,
+    "adult_learning": 20,
+    "openness_learning": 60,
+    "esteem_relief": 120,
+    "statuses": [
+      {"id": "member", "name": "Member", "esteem": 250},
+      {"id": "king", "name": "King", "unlocked_by": ["kingship"], "count": 1, "min_age": 16, "prefer": {"extraversion": 400, "boldness": 400, "conscientiousness": 200}, "per_year_of_age": 2, "inherited": 2000, "esteem": 1000, "leaning": {"socialize": 200, "worship": 100, "farm": -600, "herd": -600, "forage": -600, "fish": -600, "craft": -300}, "forbidden": ["farm", "herd", "forage", "fish", "settle_away"]},
+      {"id": "chief", "name": "Chief", "unlocked_by": ["kin_leadership", "ranked_society"], "lost_with": ["kingship"], "count": 1, "min_age": 30, "prefer": {"extraversion": 400, "agreeableness": 300, "conscientiousness": 300}, "per_year_of_age": 6, "inherited": 150, "esteem": 900, "leaning": {"socialize": 200, "farm": -100}},
+      {"id": "noble", "name": "Noble", "unlocked_by": ["ranked_society"], "per_mille": 30, "prefer": {"conscientiousness": 300, "extraversion": 300}, "luck": 300, "inherited": 1500, "esteem": 700, "leaning": {"socialize": 150, "farm": -400, "herd": -300, "forage": -400, "fish": -300}},
+      {"id": "priest", "name": "Priest", "unlocked_by": ["organized_religion"], "per_mille": 15, "min_age": 20, "prefer": {"conscientiousness": 400, "openness": 300, "agreeableness": 300}, "per_year_of_age": 2, "inherited": 200, "esteem": 650, "leaning": {"worship": 500, "farm": -300, "herd": -200}},
+      {"id": "shaman", "name": "Shaman", "unlocked_by": ["ancestor_cults"], "lost_with": ["organized_religion"], "per_mille": 10, "min_age": 25, "prefer": {"openness": 600, "neuroticism": 300}, "per_year_of_age": 2, "inherited": 100, "esteem": 550, "leaning": {"worship": 400}},
+      {"id": "scribe", "name": "Scribe", "unlocked_by": ["proto_writing", "writing"], "skills_any": ["proto_writing", "writing"], "per_mille": 8, "prefer": {"conscientiousness": 600, "openness": 400}, "inherited": 300, "esteem": 550, "leaning": {"worship": 150, "farm": -300, "herd": -300}},
+      {"id": "smith", "name": "Smith", "unlocked_by": ["copper_smelting", "metal_casting"], "skills_any": ["copper_smelting", "metal_casting"], "per_mille": 12, "prefer": {"conscientiousness": 500, "boldness": 200}, "inherited": 400, "esteem": 450, "leaning": {"craft": 500, "farm": -200}},
+      {"id": "artisan", "name": "Artisan", "unlocked_by": ["pottery", "weaving", "carpentry", "stone_masonry", "potters_wheel", "faience_glass"], "skills_any": ["pottery", "weaving", "carpentry", "stone_masonry", "potters_wheel", "faience_glass"], "per_mille": 50, "prefer": {"conscientiousness": 500, "openness": 300}, "inherited": 300, "esteem": 350, "leaning": {"craft": 350, "farm": -100}},
+      {"id": "warrior", "name": "Warrior", "unlocked_by": ["organized_infantry", "bronze_weapons"], "per_mille": 60, "min_age": 16, "max_age": 45, "sex": "male", "prefer": {"boldness": 700, "extraversion": 200, "agreeableness": -200}, "esteem": 500, "leaning": {"socialize": 100, "rest": 100, "farm": -400, "herd": -200}},
+      {"id": "elder", "name": "Elder", "unlocked_by": ["kin_leadership"], "per_mille": 1000, "min_age": 50, "per_year_of_age": 1, "esteem": 450, "leaning": {"socialize": 200, "care_for_children": 200, "worship": 100, "farm": -100}},
+      {"id": "bonded", "name": "Bonded labourer", "unlocked_by": ["bonded_labor"], "per_mille": 60, "prefer": {"conscientiousness": -300}, "luck": 700, "inherited": 2000, "for_life": true, "esteem": 0, "leaning": {"farm": 300, "herd": 200, "build": 200, "socialize": -100}, "forbidden": ["settle_away"]}
+    ]
+  },
+  "economy": {
+    "territory_radius_km": 120,
+    "territory_radius_km_note": "A city holds the tiles within this distance that no other city is nearer to, and always its own tile.",
+    "work_turns_per_day": 2,
+    "work_turns_per_day_note": "Turns (quarter days) of work that make a full day's work.",
+    "farm": { "catchment_km2": 80, "workers_per_100_km2": 1000, "daily_yield": 8000 },
+    "herd": { "catchment_km2": 700, "workers_per_100_km2": 40, "daily_yield": 4000 },
+    "forage": { "catchment_km2": 1250, "workers_per_100_km2": 8, "daily_yield": 3000 },
+    "land_work_note": "catchment_km2: land within walking distance that is worked (fields about 5 km around the village, herds about 15 km, foragers about 20 km). workers_per_100_km2: workers the best land (quality 1000) takes. daily_yield: food from a day's work on the best land, thousandths of a person-day (one adult's food for a day).",
+    "fish": {
+      "workers": { "river": 40, "lake": 60, "coast": 100 },
+      "daily_yield": 5000,
+      "gear": ["fishing_nets", "dugout_canoe"],
+      "without_gear": 600
+    },
+    "fish_note": "Fishers each kind of water within the territory takes; without nets or boats they catch without_gear per mille.",
+    "farm_requires_any": ["cereal_cultivation", "root_crops"],
+    "herd_requires_any": ["small_livestock"],
+    "unfarmable_landforms": ["Mountains"],
+    "unfarmable_biomes": ["TropicalRainforest", "Tundra", "Alpine", "IceSheet"],
+    "unfarmable_note": "Farmed only with a technology whose 'farmable' effect applies there (yams in rainforest, potatoes or terraces in mountains).",
+    "pasture": {
+      "Grassland": 1000, "Savanna": 900, "MediterraneanShrubland": 700, "ColdDesert": 400,
+      "HotDesert": 200, "Tundra": 300, "Alpine": 500, "TemperateForest": 500,
+      "TemperateRainforest": 300, "BorealForest": 200, "TropicalSeasonalForest": 400,
+      "TropicalRainforest": 100, "Wetland": 400
+    },
+    "pasture_note": "Grazing quality of each biome, per mille.",
+    "forage_floor": 300,
+    "forage_floor_note": "Foraging quality is this plus the rest scaled by fertility: game and wild plants are found even on poor land.",
+    "growing_season": { "min_temperature": 500, "min_precipitation": 600 },
+    "growing_season_note": "Fields grow in a season whose long-term mean is at least 5 C (hundredths) and which gets at least 60 mm of rain (tenths of a mm), or on a river or lake. The crop is harvested at the end of the last growing season.",
+    "off_season": { "herd": 500, "forage": 400, "fish_frozen": 300, "freezing": 0 },
+    "off_season_note": "Per mille of output outside the growing season (herds, foraging) and in seasons with a mean below freezing (fishing).",
+    "storage": { "base_months": 4, "stored_loss": 30, "open_loss": 1000, "max_preservation": 900 },
+    "storage_note": "Food up to (base_months + food_storage months) x 30 days per resident keeps well and loses stored_loss per 100 000 a day; the rest loses open_loss. preservation effects cut both, by at most max_preservation per mille.",
+    "eating": { "child_age": 12, "child_ration": 600, "full_meal": 1000 },
+    "eating_note": "Children below child_age eat child_ration per mille of an adult's food. A full day's food lowers the Food need by full_meal; a short ration by that share.",
+    "initial_food_days": 120
+  },
+  "tools": {
+    "items": [
+      {
+        "id": "stone_tools",
+        "name": "Stone tools",
+        "requires_any": ["stone_tools"],
+        "labour_days": 1,
+        "durability_days": 90,
+        "work": { "forage": 1100, "farm": 1100, "herd": 1050, "fish": 1050, "build": 1150, "craft": 1100 }
+      },
+      {
+        "id": "flint_sickle",
+        "name": "Flint sickle",
+        "requires_any": ["cereal_cultivation"],
+        "labour_days": 1,
+        "durability_days": 120,
+        "work": { "forage": 1100, "farm": 1300 }
+      },
+      {
+        "id": "fishing_gear",
+        "name": "Nets, lines and hooks",
+        "requires_any": ["fishing_nets"],
+        "labour_days": 3,
+        "durability_days": 120,
+        "work": { "fish": 1400 }
+      },
+      {
+        "id": "copper_tools",
+        "name": "Copper tools",
+        "requires_any": ["native_copper", "copper_smelting"],
+        "labour_days": 4,
+        "durability_days": 300,
+        "work": { "forage": 1150, "farm": 1200, "herd": 1100, "fish": 1100, "build": 1300, "craft": 1250 }
+      },
+      {
+        "id": "bronze_tools",
+        "name": "Bronze tools",
+        "requires_any": ["arsenical_bronze", "tin_bronze"],
+        "labour_days": 5,
+        "durability_days": 600,
+        "work": { "forage": 1200, "farm": 1300, "herd": 1150, "fish": 1150, "build": 1450, "craft": 1400 }
+      }
+    ],
+    "items_note": "Listed from least to most valued: a crafter makes the last item they know that the city is short of. requires_any: technologies, any one of which lets a person make it. labour_days: person-days of work for one. durability_days: working days before it breaks. work: per mille output with the tool, by action (missing: 1000, no help). Ores are not on the map yet, so metal tools need only the knowledge.",
+    "reserve_per_mille": 100,
+    "reserve_note": "A city counts as short of an item while its stores hold fewer than this share (per mille) of the workers whose work it helps.",
+    "spare_per_mille": 500,
+    "spare_note": "With nothing short, crafters make spares only while the stores hold fewer of an item than this share (per mille) of the city's people; then they stop."
+  },
+  "caravan": {
+    "min_adults": 5,
+    "min_adults_note": "Adults of one city who must choose to settle away on the same day for a caravan to leave; with their children that is a group of about a dozen, the size of a small band.",
+    "km_per_day": 20,
+    "km_per_day_note": "On open plains. Groups on foot with children, loads and herds make about 15-25 km a day.",
+    "terrain_cost": { "plains": 1000, "hills": 1500, "mountains": 3000 },
+    "terrain_cost_note": "Per mille of a tile's width: how much longer it takes to cross hills and mountains than plains.",
+    "river_crossing": 500,
+    "river_crossing_note": "Extra cost of entering a river tile (finding a ford, rafting), per mille of its width.",
+    "scout_radius_km": 1500,
+    "scout_radius_km_note": "How far ahead scouts and word of mouth reach. Widened to at least 1.5 times the minimum distance between cities (nearer sites are too close to home) and capped at 64 tiles each way.",
+    "min_site_score": 300,
+    "min_site_score_note": "Lowest site value (cradle score, or half the fertility of other settleable land) worth settling.",
+    "distance_penalty_per_100km": 30,
+    "max_days": 240,
+    "max_days_note": "After about eight months on the road the caravan gives up and goes home.",
+    "food_days": 60,
+    "food_days_note": "Most food taken along, in days per member; the rest stays in the stores."
+  }
+}

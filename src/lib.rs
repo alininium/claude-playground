@@ -11,18 +11,22 @@
 //! - No wall-clock time, no `HashMap` iteration with random hashers.
 
 pub mod biome;
+pub mod caravan;
 pub mod city;
 pub mod climate;
 pub mod config;
+pub mod economy;
 pub mod events;
 pub mod fertility;
 pub mod journal;
 pub mod map;
+pub mod people;
 pub mod render;
 pub mod rng;
 pub mod save;
 pub mod tech;
 pub mod time;
+pub mod tools;
 pub mod volcano;
 
 use bevy_ecs::prelude::*;
@@ -66,6 +70,10 @@ pub struct CitySnapshot {
 /// Mixed into the society seed for the stream that hands out starting
 /// technologies.
 const TECH_STREAM: u64 = 0x7EC4_0000_0000_0001;
+
+/// Mixed into the society seed for the stream that creates the first
+/// people (their seeds; everything else comes from their own streams).
+const PEOPLE_STREAM: u64 = 0x9E09_1E00_0000_0001;
 
 impl Simulation {
     /// Generates a new world from `config` and founds its cities.
@@ -144,11 +152,15 @@ impl Simulation {
 
         let mut world = World::new();
         world.insert_resource(EventLog::default());
+        people::install(&mut world);
+        world.init_resource::<journal::SocietyRecord>();
         for (volcano, position) in save.volcanoes {
             world.spawn((volcano, position));
         }
         let mut society_rng = SimRng::from_seed(save.society_seed);
         let mut tech_rng = SimRng::from_seed(save.society_seed ^ TECH_STREAM);
+        let mut people_rng = SimRng::from_seed(save.society_seed ^ PEOPLE_STREAM);
+        let founding = world.resource::<people::founding::FoundingConfig>().clone();
         city::found_initial_cities(
             &mut world,
             save.turn,
@@ -160,6 +172,8 @@ impl Simulation {
             &tree,
             &mut society_rng,
             &mut tech_rng,
+            &founding,
+            &mut people_rng,
         );
         world.insert_resource(tree);
         world.insert_resource(save.map);
@@ -183,7 +197,15 @@ impl Simulation {
                 journal::update_journal,
                 biome::update_biomes,
                 fertility::update_fertility,
-                city::grow_cities,
+                people::needs::systems(),
+                people::decide::systems(),
+                economy::systems(),
+                tools::systems(),
+                people::life::systems(),
+                people::status::systems(),
+                caravan::systems(),
+                journal::record_society,
+                people::census,
             )
                 .chain(),
         );
@@ -203,7 +225,7 @@ impl Simulation {
             fertility: self.fertility().clone(),
             volcanism: self.volcanism().clone(),
             volcanoes,
-            journal: self.journal().clone(),
+            journal: self.journal().world_part(),
             rng: self.world.resource::<SimRng>().clone(),
             society_seed: self.world.resource::<SocietySeed>().0,
         }
@@ -252,7 +274,8 @@ impl Simulation {
         self.world.resource::<Fertility>()
     }
 
-    /// The climate journal: notable weather and volcanic events by severity.
+    /// The journal: notable weather, volcanic, famine and technology events
+    /// by severity.
     pub fn journal(&self) -> &Journal {
         self.world.resource::<Journal>()
     }
@@ -281,12 +304,30 @@ impl Simulation {
         self.world.resource::<TechTree>()
     }
 
+    /// Everyone alive, in id order.
+    pub fn people(&mut self) -> Vec<people::PersonSnapshot> {
+        people::people(&mut self.world)
+    }
+
+    /// How many threads per-person work may use. Results are the same for
+    /// any number.
+    pub fn set_threads(&mut self, threads: usize) {
+        self.world
+            .insert_resource(people::parallel::Threads(threads.max(1)));
+    }
+
     pub fn events(&self) -> &EventLog {
         self.world.resource::<EventLog>()
     }
 
     pub fn world(&self) -> &World {
         &self.world
+    }
+
+    /// Direct access to the ECS world, for tests and tools. Changing it
+    /// changes the simulation.
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
     }
 
     pub fn cities(&mut self) -> Vec<CitySnapshot> {
@@ -314,6 +355,9 @@ impl Simulation {
     pub fn state_digest(&mut self) -> u64 {
         let mut h = Fnv1a(self.world_digest());
         self.cities_digest(&mut h);
+        people::digest(&mut self.world, &mut |v| h.write_u64(v));
+        tools::digest(&mut self.world, &mut |v| h.write_u64(v));
+        self.society_digest(&mut h);
         h.finish()
     }
 
@@ -335,7 +379,7 @@ impl Simulation {
             h.write(&[b as u8]);
         }
         self.volcanism().digest(&mut |v| h.write_u64(v));
-        self.journal().digest(&mut |v| h.write_u64(v));
+        self.journal().digest(false, &mut |v| h.write_u64(v));
         for (v, p) in self.volcanoes() {
             h.write_u64(u64::from(v.id.0) << 32 | u64::from(p.x) << 16 | u64::from(p.y));
             h.write_u64(v.magma);
@@ -347,6 +391,44 @@ impl Simulation {
         // Fold in the RNG position without advancing the real stream.
         h.write_u64(self.world.resource::<SimRng>().clone().next_u64());
         h.finish()
+    }
+
+    /// Fingerprint of the rest of society's state: city stores and food
+    /// accounts, what people's decisions remember, pregnancies, and the
+    /// caravans on the road. Hashed through their `Debug` form, which is
+    /// stable (no hash maps), since this only runs in tests and tools.
+    fn society_digest(&mut self, h: &mut Fnv1a) {
+        let world = &mut self.world;
+        let mut cities: Vec<_> = world
+            .query::<(&CityId, &economy::Stores, Option<&economy::Larder>)>()
+            .iter(world)
+            .map(|(id, stores, larder)| (*id, format!("{stores:?}{larder:?}")))
+            .collect();
+        cities.sort_by_key(|c| c.0);
+        for (_, text) in cities {
+            h.write(text.as_bytes());
+        }
+        let mut people: Vec<_> = world
+            .query::<(
+                &people::PersonId,
+                Option<&people::decide::Plan>,
+                Option<&people::life::Pregnant>,
+                Option<&people::life::PostPartum>,
+            )>()
+            .iter(world)
+            .map(|(id, plan, pregnant, post)| (*id, format!("{plan:?}{pregnant:?}{post:?}")))
+            .collect();
+        people.sort_by_key(|p| p.0);
+        for (id, text) in people {
+            h.write_u64(id.0);
+            h.write(text.as_bytes());
+        }
+        for caravan in caravan::caravans(world) {
+            h.write(format!("{caravan:?}").as_bytes());
+        }
+        world
+            .resource::<Journal>()
+            .digest(true, &mut |v| h.write_u64(v));
     }
 
     /// Fingerprint of the cities alone.
@@ -364,7 +446,7 @@ impl Simulation {
             h.write_u64(u64::from(pos.x));
             h.write_u64(u64::from(pos.y));
             h.write_u64(pop.count);
-            h.write_u64(pop.growth_remainder);
+            h.write_u64(pop.pending_deaths);
             knowledge.digest(&mut |v| h.write_u64(v));
         }
     }
