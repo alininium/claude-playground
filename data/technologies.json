@@ -9,6 +9,7 @@
     "requires: all of these must be known. requires_any: at least one of these. Knowing any variant of a technology counts as knowing it.",
     "needs: the city's surroundings must offer this for the technology (or variant) to be invented or adopted. Resources may be local or reached by trade; the engine decides.",
     "start: share (per mille) of cities at the start year that know it, among cities whose surroundings match 'where' and 'needs'.",
+    "barbarian_share: barbarian tribes know a starting technology with its start share times this factor (per mille, by category; missing categories count as 1000).",
     "variants: regional forms of a technology, each with its own needs, start and extra effects added to the technology's own.",
     "effects: {kind, value, where?, feature?}. 'where' limits an effect to tiles of the given biomes, landforms, soils or water access. Kinds are listed in effect_kinds."
   ],
@@ -66,6 +67,18 @@
     "wild_horses": "Wild horses; in grasslands and cold steppes.",
     "wild_asses": "Wild asses; in hot deserts, savannas and Mediterranean scrub.",
     "wild_camels": "Wild camels; in hot and cold deserts."
+  },
+  "barbarian_share": {
+    "baseline": 1000,
+    "agriculture": 450,
+    "water": 300,
+    "crafts": 400,
+    "metallurgy": 50,
+    "transport": 500,
+    "trade": 200,
+    "knowledge": 0,
+    "society": 100,
+    "warfare": 600
   },
   "technologies": [
     {

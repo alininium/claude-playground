@@ -56,6 +56,7 @@ fn world_shaping_settings_come_from_the_save() {
         seed: 12345,
         map_width: 300,
         initial_cities: 3,
+        initial_barbarians: 0,
         ..SimConfig::default()
     };
     let mut sim = Simulation::from_world(save, other);

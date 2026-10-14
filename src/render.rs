@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::CitySnapshot;
 use crate::biome::{Biome, Biomes};
+use crate::city::People;
 use crate::climate::Climate;
 use crate::climate::cryosphere::Cover;
 use crate::fertility::Fertility;
@@ -36,7 +37,10 @@ pub fn ascii(
         grid[map.index(v)] = 'V';
     }
     for c in cities {
-        grid[map.index(c.position)] = city_glyph(c.population);
+        grid[map.index(c.position)] = match c.people {
+            People::Civilized => city_glyph(c.population),
+            People::Barbarian => 'x',
+        };
     }
     grid.chunks(w)
         .map(|row| row.iter().collect::<String>())
@@ -48,7 +52,7 @@ pub fn ascii(
 pub const ASCII_LEGEND: &str = "~ ocean  - lake  # ice  * snow  = river  ^ mountains  \
 , tundra  a alpine  b boreal forest  f temperate forest  F temperate rainforest  \
 \" grassland  m mediterranean shrubland  : hot desert  ; cold desert  v savanna  \
-t tropical seasonal forest  R tropical rainforest  w wetland  V volcano  o/O/@ city";
+t tropical seasonal forest  R tropical rainforest  w wetland  V volcano  o/O/@ city  x barbarians";
 
 fn biome_glyph(biome: Biome) -> char {
     match biome {
@@ -119,7 +123,10 @@ pub fn png(
         tile_rgb[map.index(v)] = [90, 20, 10];
     }
     for c in cities {
-        tile_rgb[map.index(c.position)] = [200, 30, 30];
+        tile_rgb[map.index(c.position)] = match c.people {
+            People::Civilized => [200, 30, 30],
+            People::Barbarian => [235, 150, 20],
+        };
     }
     write_png(map, &tile_rgb, scale, path)
 }

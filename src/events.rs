@@ -2,7 +2,7 @@
 
 use bevy_ecs::prelude::Resource;
 
-use crate::city::CityId;
+use crate::city::{CityId, People};
 use crate::map::Position;
 use crate::volcano::VolcanoId;
 
@@ -13,6 +13,7 @@ pub enum SimEvent {
         id: CityId,
         name: String,
         position: Position,
+        people: People,
     },
     /// A volcano erupted. `cause` is its geological setting; `repose_years`
     /// how long it had been quiet (None for its first eruption on record).

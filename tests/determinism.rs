@@ -46,7 +46,8 @@ fn cities_are_placed_at_generation_and_only_grow() {
     let mut sim = sim_with(Fixture::Small, |c| c.city_growth_per_mille_per_year = 300);
     let start = sim.cities();
     assert!(!start.is_empty());
-    assert!(start.len() <= sim.config().initial_cities as usize);
+    let config = sim.config();
+    assert!(start.len() <= (config.initial_cities + config.initial_barbarians) as usize);
     for c in &start {
         assert_eq!((c.founded_on, c.population), (0, 10));
     }
@@ -72,33 +73,134 @@ fn cities_are_placed_at_generation_and_only_grow() {
 }
 
 #[test]
-fn initial_cities_are_spaced_out_on_settleable_land() {
-    let mut sim = sim_with(Fixture::Medium, |c| c.initial_cities = 40);
+fn initial_settlements_are_spaced_out_on_settleable_land() {
+    let mut sim = sim_with(Fixture::Medium, |c| {
+        c.initial_cities = 10;
+        c.initial_barbarians = 30;
+    });
     let cities = sim.cities();
     assert_eq!(cities.len(), 40);
-    let spacing = sim.config().min_city_distance;
+    let config = sim.config().clone();
     for (i, a) in cities.iter().enumerate() {
         let index = sim.map().index(a.position);
         assert!(societies::city::can_settle(sim.map(), sim.climate(), index));
         for b in &cities[i + 1..] {
-            let d = a
+            assert!(
+                !societies::city::too_close(sim.map(), &config, a.position, b.position),
+                "{} {:?} and {} {:?} are too close",
+                a.name,
+                a.position,
+                b.name,
+                b.position
+            );
+            let tiles = a
                 .position
                 .x
                 .abs_diff(b.position.x)
                 .max(a.position.y.abs_diff(b.position.y));
-            assert!(
-                d >= spacing,
-                "{} and {} are {d} tiles apart",
-                a.name,
-                b.name
-            );
+            assert!(tiles >= 2, "{} and {} are neighbors", a.name, b.name);
         }
     }
 }
 
 #[test]
+fn spacing_is_measured_on_the_globe() {
+    use societies::city::too_close;
+    use societies::map::Position;
+    let sim = common::sim(Fixture::Medium);
+    let (map, config) = (sim.map(), sim.config());
+    // 128×64 on a 40 000 km planet: 312.5 km per tile. 800 km takes three
+    // tiles north-south or east-west near the equator, but near the poles
+    // tiles are narrow and it takes many more east-west.
+    let p = |x, y| Position { x, y };
+    assert!(too_close(map, config, p(10, 32), p(10, 34)));
+    assert!(!too_close(map, config, p(10, 32), p(10, 35)));
+    assert!(too_close(map, config, p(10, 32), p(12, 32)));
+    assert!(!too_close(map, config, p(10, 32), p(13, 32)));
+    assert!(too_close(map, config, p(10, 3), p(20, 3)));
+    assert!(!too_close(map, config, p(10, 3), p(40, 3)));
+    // Never on neighboring tiles, however small the limit.
+    let mut loose = config.clone();
+    loose.min_city_distance_km = 0;
+    assert!(too_close(map, &loose, p(10, 3), p(11, 4)));
+    assert!(!too_close(map, &loose, p(10, 3), p(12, 3)));
+}
+
+#[test]
+fn civilized_cities_start_in_cradles() {
+    use societies::city::{People, cradle_score};
+    use societies::map::Soil;
+    use societies::tech::Site;
+    let mut sim = common::sim(Fixture::Medium);
+    let cities = sim.cities();
+    let civilized: Vec<_> = cities
+        .iter()
+        .filter(|c| c.people == People::Civilized)
+        .collect();
+    assert_eq!(civilized.len() as u32, sim.config().initial_cities);
+    let (map, biomes) = (sim.map(), sim.biomes());
+    let mut river = 0;
+    let mut alluvial = 0;
+    for c in &civilized {
+        let i = map.index(c.position);
+        assert!(
+            cradle_score(map, sim.climate(), biomes, sim.fertility(), i) > 0,
+            "{} is not on a cradle site",
+            c.name
+        );
+        let site = Site::of(map, biomes, i);
+        assert!(site.river || site.lake || site.coast);
+        let t = sim.climate().normal(i).mean_tenths();
+        assert!((100..=250).contains(&t), "{} has a mean of {t}", c.name);
+        river += usize::from(site.river);
+        alluvial += usize::from(site.soil == Soil::Alluvial);
+    }
+    // Most are river cities, many on floodplains.
+    assert!(
+        river * 4 >= civilized.len() * 3,
+        "{river} of {} on rivers",
+        civilized.len()
+    );
+    assert!(
+        alluvial * 2 >= civilized.len(),
+        "{alluvial} of {} on alluvium",
+        civilized.len()
+    );
+    // Barbarians come after the cities.
+    let first_barbarian = cities.iter().position(|c| c.people == People::Barbarian);
+    assert_eq!(first_barbarian, Some(civilized.len()));
+}
+
+#[test]
+fn barbarians_know_less_than_cities() {
+    use societies::city::People;
+    let mut sim = common::sim(Fixture::Medium);
+    let cities = sim.cities();
+    let mean = |people: People| {
+        let known: Vec<usize> = cities
+            .iter()
+            .filter(|c| c.people == people)
+            .map(|c| c.knowledge.count())
+            .collect();
+        assert!(!known.is_empty(), "no {people:?}");
+        known.iter().sum::<usize>() * 10 / known.len()
+    };
+    let (civilized, barbarian) = (mean(People::Civilized), mean(People::Barbarian));
+    assert!(
+        barbarian * 3 < civilized * 2,
+        "barbarians know {barbarian} vs {civilized} (tenths)"
+    );
+    // Nobody lacks the baseline.
+    let fire = sim.technologies().id("fire").unwrap();
+    assert!(cities.iter().all(|c| c.knowledge.knows(fire)));
+}
+
+#[test]
 fn cities_prefer_fertile_land() {
-    let mut sim = sim_with(Fixture::Medium, |c| c.initial_cities = 30);
+    let mut sim = sim_with(Fixture::Medium, |c| {
+        c.initial_cities = 0;
+        c.initial_barbarians = 30;
+    });
     let cities = sim.cities();
     let map = sim.map();
     let fertility = sim.fertility();
@@ -155,14 +257,15 @@ fn event_log_records_every_city_founding_exactly_once() {
                 id,
                 name,
                 position,
-            } => Some((*turn, *id, name.clone(), *position)),
+                people,
+            } => Some((*turn, *id, name.clone(), *position, *people)),
             #[allow(unreachable_patterns)]
             _ => None,
         })
         .collect();
     let expected: Vec<_> = cities
         .iter()
-        .map(|c| (0, c.id, c.name.clone(), c.position))
+        .map(|c| (0, c.id, c.name.clone(), c.position, c.people))
         .collect();
     assert_eq!(
         founded, expected,

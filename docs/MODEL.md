@@ -179,7 +179,8 @@ value, number of regions, and the hemisphere if they share one).
 | | |
 |---|---|
 | Established | **Logistic growth** (Verhulst, 1838): `dP/dt = rP(1 − P/K)`. |
-| Our own | r = 3% a year, K = 10 000, integrated exactly with integer remainders every turn. Starting cities (24) are placed only at world creation, with probability proportional to fertility + 1%, at least 4 tiles apart (Chebyshev distance), never on glaciers. |
+| Established | The first cities (around 4500 BCE: Eridu and Uruk, the Nile valley, Mehrgarh, the Yellow and Yangtze rivers, Çatalhöyük, Varna) grew on fertile river floodplains and lake or sea shores, in warm-temperate to subtropical climates. The richest were rivers through dry country, where irrigation produced surpluses. Everyone else lived in villages and tribes with simpler technology. |
+| Our own | r = 3% a year, K = 10 000, integrated exactly with integer remainders every turn. Settlements are placed only at world creation, never on glaciers or neighbouring tiles, and at least 800 km apart: the distance is measured on the globe, east-west scaled by cos(latitude). **Placement order:** 6 civilized cities first, then 10 barbarian tribes. **Civilized cities** need a cradle site, drawn with probability ∝ score². A cradle site has: no rainforest, boreal, tundra, cold desert, alpine or ice; a mean temperature of 10–25 °C; and a river, lake or coast on or next to the tile. **Score:** fertility (0–1000) + 500 for a river + 200 for a lake + 100 for a coast + 300 for alluvial soil + 300 for a river through desert, savanna, grassland or Mediterranean shrubland. Once cradle sites run out, cities go anywhere fertile. **Barbarian tribes** go anywhere settleable, ∝ fertility + 1%. They draw their starting technologies at `start.share × barbarian_share[category]` (see `data/technologies.json`). |
 
 ## 15. Geometry
 

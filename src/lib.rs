@@ -29,7 +29,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::SingleThreadedExecutor;
 
 use biome::Biomes;
-use city::{City, CityId, Population};
+use city::{City, CityId, People, Population};
 use climate::Climate;
 use config::SimConfig;
 use events::EventLog;
@@ -59,6 +59,7 @@ pub struct CitySnapshot {
     pub position: Position,
     pub population: u64,
     pub founded_on: u64,
+    pub people: People,
     pub knowledge: Knowledge,
 }
 
@@ -300,6 +301,7 @@ impl Simulation {
                 position: *pos,
                 population: pop.count,
                 founded_on: city.founded_on,
+                people: city.people,
                 knowledge: knowledge.clone(),
             })
             .collect();
@@ -358,6 +360,7 @@ impl Simulation {
             h.write_u64(u64::from(id.0));
             h.write(city.name.as_bytes());
             h.write_u64(city.founded_on);
+            h.write_u64(city.people as u64);
             h.write_u64(u64::from(pos.x));
             h.write_u64(u64::from(pos.y));
             h.write_u64(pop.count);

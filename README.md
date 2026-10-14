@@ -19,9 +19,14 @@ future. It has:
 - volcanoes that erupt, cool the climate and bury land in ash
 - a climate journal of notable events
 
-Cities are placed on fertile land when the world is created, each with 10
-people, and then grow slowly (logistic growth toward a carrying capacity). No
-new cities are founded during play. Worlds can be saved and loaded.
+The world starts in 4500 BCE with 16 settlements, each of 10 people:
+
+- **6 civilized cities**, on sites like those of the first cities: fertile river valleys and floodplains in warm-temperate to subtropical climates, the best of them rivers through dry country (think Mesopotamia, the Nile, the Indus, the Yellow River).
+- **10 barbarian tribes**, scattered over the rest of the habitable land. They start with far fewer technologies.
+
+No two settlements are closer than 800 km. They grow slowly (logistic growth
+toward a carrying capacity), and no new ones are founded during play. Worlds
+can be saved and loaded.
 
 **[docs/MODEL.md](docs/MODEL.md)** documents every formula: which physical
 laws and published methods it is built on, and which effects and constants
@@ -232,10 +237,15 @@ barley, millet, rice, sorghum), root crops, tree crops, small livestock,
 cattle and pack animals. A variant only spreads where its environment suits
 it, and knowing any variant counts as knowing the technology.
 
-Knowledge belongs to **cities** (the `Knowledge` component). When a city is
-founded it gets the start-year technologies that fit its tile and
+Knowledge belongs to **settlements** (the `Knowledge` component). When one
+is founded it gets the start-year technologies that fit its tile and
 neighbours, drawn from a random stream of its own. Editing the file never
-moves cities or changes the world.
+moves settlements or changes the world.
+
+**Barbarian tribes** roll each starting technology with its share scaled by
+the file's `barbarian_share` for that category. For example, agriculture is
+×0.45, metallurgy ×0.05 and knowledge ×0. They keep the baseline, so a tribe
+typically knows 10–15 technologies where a city knows 20–27.
 
 The file is compiled in and checked when it loads. The checks cover:
 

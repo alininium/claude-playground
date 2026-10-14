@@ -3,6 +3,7 @@ use std::process::ExitCode;
 
 use societies::Simulation;
 use societies::biome::Biome;
+use societies::city::People;
 use societies::climate::cryosphere::Cover;
 use societies::config::SimConfig;
 use societies::events::SimEvent;
@@ -142,9 +143,16 @@ fn main() -> ExitCode {
                     id,
                     name,
                     position,
+                    people,
                 } => println!(
-                    "turn {turn:>4}: city #{} {name} founded at ({}, {})",
-                    id.0, position.x, position.y
+                    "turn {turn:>4}: {} #{} {name} founded at ({}, {})",
+                    match people {
+                        People::Civilized => "city",
+                        People::Barbarian => "barbarian tribe",
+                    },
+                    id.0,
+                    position.x,
+                    position.y
                 ),
                 SimEvent::Eruption {
                     turn,
@@ -185,13 +193,16 @@ fn main() -> ExitCode {
         for c in &cities {
             let tile = sim.map().tile(c.position);
             println!(
-                "#{:<3} {:<12} ({:>3},{:>3})  pop {:>6}  founded turn {:<5}  {:>5.1}°C  {:?} {:?}{} {}m",
+                "#{:<3} {:<12} {:<9} ({:>3},{:>3})  pop {:>6}  {:>5.1}°C  {:?} {:?}{} {}m",
                 c.id.0,
                 c.name,
+                match c.people {
+                    People::Civilized => "city",
+                    People::Barbarian => "barbarian",
+                },
                 c.position.x,
                 c.position.y,
                 c.population,
-                c.founded_on,
                 f64::from(sim.climate().temperature(sim.map().index(c.position))) / 10.0,
                 tile.landform,
                 sim.biomes().biome(sim.map().index(c.position)),
@@ -221,7 +232,14 @@ fn main() -> ExitCode {
         }
     }
     let total: u64 = cities.iter().map(|c| c.population).sum();
-    println!("\n{} cities, total population {total}", cities.len());
+    let tribes = cities
+        .iter()
+        .filter(|c| c.people == People::Barbarian)
+        .count();
+    println!(
+        "\n{} cities and {tribes} barbarian tribes, total population {total}",
+        cities.len() - tribes
+    );
 
     if let Some(path) = png {
         let volcanoes: Vec<_> = sim.volcanoes().into_iter().map(|(_, p)| p).collect();

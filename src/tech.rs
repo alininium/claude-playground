@@ -19,6 +19,7 @@ use std::path::Path;
 use bevy_ecs::prelude::{Component, Resource};
 
 use crate::biome::{Biome, Biomes};
+use crate::city::People;
 use crate::map::{Landform, Map, Soil, Water};
 use crate::rng::SimRng;
 
@@ -46,10 +47,16 @@ pub struct TechFile {
     pub effect_kinds: BTreeMap<String, String>,
     /// Every resource a technology may need, with what it is.
     pub resources: BTreeMap<String, String>,
+    /// Barbarian tribes know a technology at the start with its `start`
+    /// share times this, per mille, by category (missing: 1000).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub barbarian_share: BTreeMap<Category, u32>,
     pub technologies: Vec<Technology>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Baseline,
@@ -288,6 +295,13 @@ impl TechTree {
         }
         if file.version != VERSION {
             problem(format!("version is {}, expected {VERSION}", file.version));
+        }
+        for (category, &share) in &file.barbarian_share {
+            if share > 1000 {
+                problem(format!(
+                    "barbarian_share for {category:?} is {share}, above 1000"
+                ));
+            }
         }
         if file.technologies.len() > usize::from(u16::MAX) {
             problem("too many technologies".into());
@@ -546,17 +560,23 @@ impl TechTree {
             && (tech.variants.is_empty() || tech.variants.iter().any(|v| v.needs.met_by(site)))
     }
 
-    /// What a city founded at `site` knows at the start year. Technologies
-    /// are visited prerequisites first; each one (or each variant) whose
-    /// prerequisites, needs and `start.where` the city meets is known with
-    /// probability `start.share` per mille.
-    pub fn starting_knowledge(&self, site: &Site, rng: &mut SimRng) -> Knowledge {
+    /// What a settlement of `people` founded at `site` knows at the start
+    /// year. Technologies are visited prerequisites first; each one (or each
+    /// variant) whose prerequisites, needs and `start.where` the settlement
+    /// meets is known with probability `start.share` per mille, scaled for
+    /// barbarians by the file's `barbarian_share` for its category.
+    pub fn starting_knowledge(&self, site: &Site, people: People, rng: &mut SimRng) -> Knowledge {
         let mut knowledge = Knowledge::new(self);
         for &id in &self.order {
             let tech = self.tech(id);
             if !self.prerequisites_met(&knowledge, id) || !tech.needs.met_by(site) {
                 continue;
             }
+            let scale = match people {
+                People::Civilized => 1000,
+                People::Barbarian => self.barbarian_share(tech.category),
+            };
+            let roll = |rng: &mut SimRng, share: u32| roll(rng, share * scale / 1000);
             if tech.variants.is_empty() {
                 if let Some(start) = &tech.start
                     && start.at.matches(site)
@@ -578,6 +598,15 @@ impl TechTree {
             }
         }
         knowledge
+    }
+
+    /// The per-mille factor on barbarians' start shares for `category`.
+    pub fn barbarian_share(&self, category: Category) -> u32 {
+        self.file
+            .barbarian_share
+            .get(&category)
+            .copied()
+            .unwrap_or(1000)
     }
 }
 
