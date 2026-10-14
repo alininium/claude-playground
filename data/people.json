@@ -110,10 +110,6 @@
       }
     }
   },
-  "life": {},
-
-  "needs": {},
-  "actions": {},
   "life": {
     "mortality": {
       "infant_per_million": 300000,
@@ -197,9 +193,6 @@
     "eating_note": "Children below child_age eat child_ration per mille of an adult's food. A full day's food lowers the Food need by full_meal; a short ration by that share.",
     "initial_food_days": 120
   },
-  "tools": {},
-
-  "economy": {},
   "tools": {
     "items": [
       {
