@@ -27,6 +27,7 @@
 //! glaciers); temperatures in tenths of a degree; time steps in quarter days.
 
 use crate::map::{Map, Water};
+use crate::parallel::{self, Threads};
 
 /// Snow beyond 1 m water equivalent compacts into glacier ice.
 const FIRN_THRESHOLD: u32 = 10_000;
@@ -156,30 +157,40 @@ impl Cryosphere {
         precipitation: &[u16],
         quarters: u32,
         days_per_year: u32,
+        threads: Threads,
     ) {
         let q = i64::from(quarters);
         let per_year = i64::from(days_per_year.max(1)) * 4;
-        for ((((f, melt), tile), &temp), &rate) in self
+        let c = parallel::chunk_len(self.tiles.len(), threads, parallel::min_tiles_per_thread());
+        let parts = self
             .tiles
-            .iter_mut()
-            .zip(self.melt.iter_mut())
-            .zip(map.tiles())
-            .zip(temperatures)
-            .zip(precipitation)
-        {
-            *melt = 0;
-            let t = i64::from(temp);
-            match tile.water {
-                Water::Ocean => water_ice(&mut f.ice, t, SEA_FREEZING_POINT, q, 700),
-                Water::Lake => water_ice(&mut f.ice, t, 0, q, 1000),
-                Water::River | Water::Dry => {
-                    if tile.water == Water::River {
-                        water_ice(&mut f.ice, t, 0, q, 800);
+            .chunks_mut(c)
+            .zip(self.melt.chunks_mut(c))
+            .zip(map.tiles().chunks(c))
+            .zip(temperatures.chunks(c))
+            .zip(precipitation.chunks(c));
+        parallel::run(parts, |((((tiles, melts), map_tiles), temps), rates)| {
+            let rows = tiles
+                .iter_mut()
+                .zip(melts)
+                .zip(map_tiles)
+                .zip(temps)
+                .zip(rates);
+            for ((((f, melt), tile), &temp), &rate) in rows {
+                *melt = 0;
+                let t = i64::from(temp);
+                match tile.water {
+                    Water::Ocean => water_ice(&mut f.ice, t, SEA_FREEZING_POINT, q, 700),
+                    Water::Lake => water_ice(&mut f.ice, t, 0, q, 1000),
+                    Water::River | Water::Dry => {
+                        if tile.water == Water::River {
+                            water_ice(&mut f.ice, t, 0, q, 800);
+                        }
+                        *melt = land(f, t, q, precipitation_step(rate, q, per_year));
                     }
-                    *melt = land(f, t, q, precipitation_step(rate, q, per_year));
                 }
             }
-        }
+        });
     }
 
     /// Daily glacier flow: ice creeps toward thinner neighbors (at most

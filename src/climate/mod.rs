@@ -53,6 +53,7 @@ use bevy_ecs::prelude::{Res, ResMut, Resource};
 use crate::config::SimConfig;
 use crate::map::noise::{Noise, ONE};
 use crate::map::{Map, Water};
+use crate::parallel::{self, Threads};
 use crate::rng::SimRng;
 use crate::time::{Date, TURNS_PER_DAY, TimeOfDay, Turn};
 use cryosphere::{Cryosphere, Frozen};
@@ -153,7 +154,7 @@ pub struct Climate {
 }
 
 impl Climate {
-    pub fn new(map: &Map, config: &ClimateConfig, rng: &mut SimRng) -> Self {
+    pub fn new(map: &Map, config: &ClimateConfig, rng: &mut SimRng, threads: Threads) -> Self {
         let oscillation = Oscillation::new(SimRng::from_seed(rng.next_u64()));
         let drift = Drift::new(SimRng::from_seed(rng.next_u64()));
         let teleconnections = Noise::new(rng.next_u64());
@@ -199,26 +200,26 @@ impl Climate {
             day: 0,
             last_season: None,
         };
-        climate.spin_up(map, config);
-        climate.start_day(0, false);
-        climate.update_temperatures(0);
+        climate.spin_up(map, config, threads);
+        climate.start_day(0, false, threads);
+        climate.update_temperatures(0, threads);
         climate
     }
 
     /// Sets up a day: day length, weather (unless `neutral`) and
     /// precipitation rates.
-    fn start_day(&mut self, day: u64, neutral: bool) {
+    fn start_day(&mut self, day: u64, neutral: bool, threads: Threads) {
         let osc = if neutral {
             0
         } else {
             self.oscillation.state().0
         };
-        self.start_day_with(day, !neutral, osc);
+        self.start_day_with(day, !neutral, osc, threads);
     }
 
     /// [`Climate::start_day`] with weather switched on or off and a given
     /// oscillation index.
-    fn start_day_with(&mut self, day: u64, weather: bool, osc: i64) {
+    fn start_day_with(&mut self, day: u64, weather: bool, osc: i64, threads: Threads) {
         let neutral = !weather;
         let day_of_year = (day % u64::from(self.days_per_year)) as u32;
         for (d, &lat) in self.daylight.iter_mut().zip(&self.latitudes) {
@@ -237,19 +238,27 @@ impl Climate {
                 .update(day, self.width as u32, |i| profiles[i].weather_amplitude);
         }
         let season = rain_season(day_of_year, self.days_per_year);
-        for (i, (rate, p)) in self
+        let c = parallel::chunk_len(
+            self.precipitation.len(),
+            threads,
+            parallel::min_tiles_per_thread(),
+        );
+        let weather = &self.weather;
+        let parts = self
             .precipitation
-            .iter_mut()
-            .zip(&self.profiles)
-            .enumerate()
-        {
-            let weather = if neutral {
-                1000
-            } else {
-                self.weather.precipitation_factor(i)
-            };
-            *rate = precipitation_rate(p, season, osc, weather);
-        }
+            .chunks_mut(c)
+            .zip(self.profiles.chunks(c))
+            .enumerate();
+        parallel::run(parts, |(part, (rates, profiles))| {
+            for (k, (rate, p)) in rates.iter_mut().zip(profiles).enumerate() {
+                let weather = if neutral {
+                    1000
+                } else {
+                    weather.precipitation_factor(part * c + k)
+                };
+                *rate = precipitation_rate(p, season, osc, weather);
+            }
+        });
     }
 
     /// Runs whole years of neutral climate (no oscillation, no drift) at
@@ -257,38 +266,54 @@ impl Climate {
     /// sheets are settled to the equilibrium of the glacier model (see
     /// [`Cryosphere::settle_glaciers`]), so they start out stable instead of
     /// spending decades adjusting.
-    fn spin_up(&mut self, map: &Map, config: &ClimateConfig) {
+    fn spin_up(&mut self, map: &Map, config: &ClimateConfig, threads: Threads) {
         let years = config.spinup_years.max(2);
         let mut balance = Vec::new();
         for year in 0..years {
             let mut night = vec![0i16; self.temperature.len()];
             for day in 0..self.days_per_year {
-                self.start_day(u64::from(day), true);
+                self.start_day(u64::from(day), true, threads);
                 // `daily_mean_temperature`, with the seasonal cosine computed
                 // once per distinct lag and the daily-cycle scale once per row.
                 let midday = i64::from(day) * 4 + 1;
-                let mut season_by_lag = [None; 128];
-                let rows = self
+                // Whole rows per thread, so each knows its day length.
+                let w = self.width;
+                let c = parallel::chunk_len(
+                    self.temperature.len(),
+                    threads,
+                    parallel::min_tiles_per_thread(),
+                )
+                .div_ceil(w)
+                    * w;
+                let parts = self
                     .temperature
-                    .chunks_mut(self.width)
-                    .zip(night.chunks_mut(self.width))
-                    .zip(&self.daylight);
-                for (row, ((temps, nights), &daylight)) in rows.enumerate() {
-                    let scale = diurnal_scale(daylight);
-                    let start = row * self.width;
-                    for (x, (t, n)) in temps.iter_mut().zip(nights).enumerate() {
-                        let i = start + x;
-                        let p = &self.profiles[i];
-                        let lag = usize::from(p.seasonal_lag_days).min(127);
-                        let season = *season_by_lag[lag]
-                            .get_or_insert_with(|| seasonal_cosine(p, midday, self.days_per_year));
-                        let mean =
-                            mean_with_season(p, season, 0, 0) - self.cryosphere.albedo_cooling(i);
-                        *t = clamp16(mean);
-                        *n = clamp16(mean - i64::from(p.diurnal_range) * scale / 1000 * 400 / 1000);
+                    .chunks_mut(c)
+                    .zip(night.chunks_mut(c))
+                    .enumerate();
+                let (profiles, cryosphere) = (&self.profiles, &self.cryosphere);
+                let (daylight, days_per_year) = (&self.daylight, self.days_per_year);
+                parallel::run(parts, |(part, (temps, nights))| {
+                    let mut season_by_lag = [None; 128];
+                    let rows = temps.chunks_mut(w).zip(nights.chunks_mut(w));
+                    for (r, (temps, nights)) in rows.enumerate() {
+                        let row = part * c / w + r;
+                        let scale = diurnal_scale(daylight[row]);
+                        for (x, (t, n)) in temps.iter_mut().zip(nights).enumerate() {
+                            let i = row * w + x;
+                            let p = &profiles[i];
+                            let lag = usize::from(p.seasonal_lag_days).min(127);
+                            let season = *season_by_lag[lag]
+                                .get_or_insert_with(|| seasonal_cosine(p, midday, days_per_year));
+                            let mean =
+                                mean_with_season(p, season, 0, 0) - cryosphere.albedo_cooling(i);
+                            *t = clamp16(mean);
+                            *n = clamp16(
+                                mean - i64::from(p.diurnal_range) * scale / 1000 * 400 / 1000,
+                            );
+                        }
                     }
-                }
-                self.step_water(map, TURNS_PER_DAY as u32);
+                });
+                self.step_water(map, TURNS_PER_DAY as u32, threads);
                 self.soil.route(map);
                 let season = (day * 4 / self.days_per_year) as usize;
                 let soil = &self.soil;
@@ -298,9 +323,10 @@ impl Climate {
                     |i| soil.wetness(i),
                     TURNS_PER_DAY as u32,
                     season,
+                    threads,
                 );
                 self.stats
-                    .record_day(&night, |i| soil.is_flooding(i), season);
+                    .record_day(&night, |i| soil.is_flooding(i), season, threads);
                 // No flow before seeding: the surplus must be snowfall alone.
                 if year >= 2 {
                     self.cryosphere.flow_glaciers(map);
@@ -308,7 +334,7 @@ impl Climate {
             }
             self.end_year();
             if year == 1 {
-                balance = self.glacier_mass_balance(map);
+                balance = self.glacier_mass_balance(map, threads);
                 self.cryosphere.settle_glaciers(
                     map,
                     &balance,
@@ -333,7 +359,7 @@ impl Climate {
     /// glacier albedo. Measured on a probe, a copy of each land tile's snow
     /// with a thick glacier underneath, stepped turn by turn like the real
     /// run and averaged over a few years of weather.
-    fn glacier_mass_balance(&mut self, map: &Map) -> Vec<i64> {
+    fn glacier_mass_balance(&self, map: &Map, threads: Threads) -> Vec<i64> {
         const PROBE: u32 = 2_000_000;
         const YEARS: u64 = 3;
         let land: Vec<usize> = (0..map.tiles().len())
@@ -349,11 +375,31 @@ impl Climate {
             .collect();
         let mass = |f: &Frozen| i64::from(f.snow) + i64::from(f.glacier);
         let before: Vec<i64> = probe.iter().map(mass).collect();
+        // Probe tiles are independent: each thread runs a share of them
+        // through all the years (thousands of steps per tile, so even a few
+        // tiles per thread are worth it).
+        let chunk = parallel::chunk_len(land.len(), threads, 64);
+        parallel::run(
+            probe.chunks_mut(chunk).zip(land.chunks(chunk)),
+            |(probe, land)| self.run_probe(probe, land, YEARS),
+        );
+        let mut balance = vec![0; map.tiles().len()];
+        for ((&i, f), b) in land.iter().zip(&probe).zip(&before) {
+            balance[i] = (mass(f) - b) / YEARS as i64;
+        }
+        balance
+    }
+
+    /// Steps the glacier probe `probe` of the land tiles `land` through
+    /// `years` neutral years (see [`Climate::glacier_mass_balance`]).
+    fn run_probe(&self, probe: &mut [Frozen], land: &[usize], years: u64) {
         // Only the probe tiles' weather and precipitation are needed, so
         // they are sampled tile by tile (with the formulas of
-        // `start_day_with`) instead of updating the whole map.
+        // `start_day_with`) instead of updating the whole map. The copy only
+        // serves as a cache of weather noise.
+        let mut weather = self.weather.clone();
         let rows = self.latitudes.len();
-        for day in 0..u64::from(self.days_per_year) * YEARS {
+        for day in 0..u64::from(self.days_per_year) * years {
             let day_of_year = (day % u64::from(self.days_per_year)) as u32;
             let row_scale: Vec<i64> = (0..rows)
                 .map(|y| {
@@ -365,7 +411,7 @@ impl Climate {
                     diurnal_scale(minutes as u16)
                 })
                 .collect();
-            let field = self.weather.day_field(day, self.width as u32);
+            let field = weather.day_field(day, self.width as u32);
             let rain_season = rain_season(day_of_year, self.days_per_year);
             // Probe tiles are independent, so each runs its four quarters
             // back to back; the day's weather, precipitation and day length
@@ -375,7 +421,7 @@ impl Climate {
                 (quarter_day(&date), diurnal_share(date.time_of_day))
             });
             let mut season_by_lag = [[None; 128]; TURNS_PER_DAY as usize];
-            for (f, &i) in probe.iter_mut().zip(&land) {
+            for (f, &i) in probe.iter_mut().zip(land) {
                 let profile = &self.profiles[i];
                 let (weather, rain) = field.at(i, profile.weather_amplitude);
                 let diurnal = i64::from(profile.diurnal_range) * row_scale[i / self.width] / 1000;
@@ -396,21 +442,17 @@ impl Climate {
                 }
             }
         }
-        let mut balance = vec![0; map.tiles().len()];
-        for ((&i, f), b) in land.iter().zip(&probe).zip(&before) {
-            balance[i] = (mass(f) - b) / YEARS as i64;
-        }
-        balance
     }
 
     /// Snow, ice and soil water for `quarters` quarter-days.
-    fn step_water(&mut self, map: &Map, quarters: u32) {
+    fn step_water(&mut self, map: &Map, quarters: u32, threads: Threads) {
         self.cryosphere.step(
             map,
             &self.temperature,
             &self.precipitation,
             quarters,
             self.days_per_year,
+            threads,
         );
         self.soil.step(
             map,
@@ -420,6 +462,7 @@ impl Climate {
             &self.tile_daylight,
             quarters,
             self.days_per_year,
+            threads,
         );
     }
 
@@ -543,33 +586,56 @@ impl Climate {
         self.drift.step_day(config);
     }
 
-    fn update_temperatures(&mut self, turn: u64) {
+    fn update_temperatures(&mut self, turn: u64, threads: Threads) {
         let osc = self.oscillation.state().0;
         let drift = self.drift.anomaly();
-        self.update_temperatures_with(turn, osc, drift);
+        self.update_temperatures_with(turn, osc, drift, threads);
     }
 
-    fn update_temperatures_with(&mut self, turn: u64, osc: i64, drift: i64) {
+    fn update_temperatures_with(&mut self, turn: u64, osc: i64, drift: i64, threads: Threads) {
         let date = Date::from_turn(turn, self.days_per_year);
         // The seasonal cosine depends on the tile only through its lag:
         // compute it once per distinct lag (same formula as `temperature_at`).
         let now = quarter_day(&date);
-        let mut season_by_lag = [None; 128];
         let share = diurnal_share(date.time_of_day);
-        for (i, (t, profile)) in self.temperature.iter_mut().zip(&self.profiles).enumerate() {
-            let row = i / self.width;
-            let scale = diurnal_scale(self.daylight[row]);
-            let volcanic = self.volcanic_cooling[usize::from(self.latitudes[row] < 0)];
-            let lag = usize::from(profile.seasonal_lag_days).min(127);
-            let season = *season_by_lag[lag]
-                .get_or_insert_with(|| seasonal_cosine(profile, now, self.days_per_year));
-            let temp = mean_with_season(profile, season, osc, drift)
-                + i64::from(profile.diurnal_range) * scale / 1000 * share / 1000
-                - self.cryosphere.albedo_cooling(i)
-                + i64::from(self.weather.temperature(i))
-                - i64::from(volcanic);
-            *t = clamp16(temp);
-        }
+        // Whole rows per thread.
+        let w = self.width;
+        let c = parallel::chunk_len(
+            self.temperature.len(),
+            threads,
+            parallel::min_tiles_per_thread(),
+        )
+        .div_ceil(w)
+            * w;
+        let (profiles, daylight, latitudes) = (&self.profiles, &self.daylight, &self.latitudes);
+        let (cryosphere, weather) = (&self.cryosphere, &self.weather);
+        let (volcanic_cooling, days_per_year) = (self.volcanic_cooling, self.days_per_year);
+        let parts = self
+            .temperature
+            .chunks_mut(c)
+            .zip(profiles.chunks(c))
+            .enumerate();
+        parallel::run(parts, |(part, (temps, profiles))| {
+            let mut season_by_lag = [None; 128];
+            let rows = temps.chunks_mut(w).zip(profiles.chunks(w));
+            for (r, (temps, profiles)) in rows.enumerate() {
+                let row = part * c / w + r;
+                let scale = diurnal_scale(daylight[row]);
+                let volcanic = i64::from(volcanic_cooling[usize::from(latitudes[row] < 0)]);
+                for (x, (t, profile)) in temps.iter_mut().zip(profiles).enumerate() {
+                    let i = row * w + x;
+                    let lag = usize::from(profile.seasonal_lag_days).min(127);
+                    let season = *season_by_lag[lag]
+                        .get_or_insert_with(|| seasonal_cosine(profile, now, days_per_year));
+                    let temp = mean_with_season(profile, season, osc, drift)
+                        + i64::from(profile.diurnal_range) * scale / 1000 * share / 1000
+                        - cryosphere.albedo_cooling(i)
+                        + i64::from(weather.temperature(i))
+                        - volcanic;
+                    *t = clamp16(temp);
+                }
+            }
+        });
     }
 
     pub(crate) fn digest(&self, write: &mut impl FnMut(u64)) {
@@ -654,7 +720,9 @@ pub fn update_climate(
     config: Res<SimConfig>,
     map: Res<Map>,
     mut climate: ResMut<Climate>,
+    threads: Option<Res<Threads>>,
 ) {
+    let threads = threads.map_or_else(Threads::default, |t| *t);
     let date = Date::from_turn(turn.0, climate.days_per_year);
     if turn.0.is_multiple_of(TURNS_PER_DAY) {
         climate.advance_day(&config.climate.oscillation);
@@ -670,11 +738,11 @@ pub fn update_climate(
         }
         climate.day = turn.0 / TURNS_PER_DAY;
         let day = climate.day;
-        climate.start_day(day, false);
+        climate.start_day(day, false, threads);
     }
-    climate.update_temperatures(turn.0);
+    climate.update_temperatures(turn.0, threads);
     let climate = &mut *climate;
-    climate.step_water(&map, 1);
+    climate.step_water(&map, 1, threads);
     let soil = &climate.soil;
     climate.stats.accumulate(
         &climate.temperature,
@@ -682,6 +750,7 @@ pub fn update_climate(
         |i| soil.wetness(i),
         1,
         date.season as usize,
+        threads,
     );
     if date.time_of_day == TimeOfDay::Night {
         climate.cryosphere.flow_glaciers(&map);
@@ -691,6 +760,7 @@ pub fn update_climate(
             &climate.temperature,
             |i| soil.is_flooding(i),
             date.season as usize,
+            threads,
         );
     }
 }
