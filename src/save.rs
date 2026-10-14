@@ -40,7 +40,7 @@ use crate::volcano::{Volcanism, Volcano};
 const MAGIC: &[u8; 8] = b"SOCWORLD";
 const JSON_FORMAT: &str = "societies-world";
 /// Bumped whenever the saved data layout changes.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldSave {

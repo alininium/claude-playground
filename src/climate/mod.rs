@@ -55,7 +55,7 @@ use crate::map::noise::{Noise, ONE};
 use crate::map::{Map, Water};
 use crate::rng::SimRng;
 use crate::time::{Date, TURNS_PER_DAY, TimeOfDay, Turn};
-use cryosphere::Cryosphere;
+use cryosphere::{Cryosphere, Frozen};
 use oscillation::{Drift, Oscillation, OscillationConfig};
 use soil::SoilWater;
 use stats::{ClimateNormal, SeasonSummary, YearStats};
@@ -73,8 +73,9 @@ pub struct ClimateConfig {
     pub maritime_range_km: u32,
     /// Years of climate simulated before turn 0 (at least 2).
     pub spinup_years: u32,
-    /// Glaciers are seeded with this many years of their yearly snow surplus.
-    pub glacier_seed_years: u32,
+    /// Longest the ice sheets are settled for before turn 0, in years (they
+    /// usually settle sooner; see `Cryosphere::settle_glaciers`).
+    pub glacier_settle_years: u32,
     pub oscillation: OscillationConfig,
 }
 
@@ -86,7 +87,7 @@ impl Default for ClimateConfig {
             planet_circumference_km: 40_000,
             maritime_range_km: 1_500,
             spinup_years: 4,
-            glacier_seed_years: 300,
+            glacier_settle_years: 20_000,
             oscillation: OscillationConfig::default(),
         }
     }
@@ -207,6 +208,18 @@ impl Climate {
     /// Sets up a day: day length, weather (unless `neutral`) and
     /// precipitation rates.
     fn start_day(&mut self, day: u64, neutral: bool) {
+        let osc = if neutral {
+            0
+        } else {
+            self.oscillation.state().0
+        };
+        self.start_day_with(day, !neutral, osc);
+    }
+
+    /// [`Climate::start_day`] with weather switched on or off and a given
+    /// oscillation index.
+    fn start_day_with(&mut self, day: u64, weather: bool, osc: i64) {
+        let neutral = !weather;
         let day_of_year = (day % u64::from(self.days_per_year)) as u32;
         for (d, &lat) in self.daylight.iter_mut().zip(&self.latitudes) {
             *d = daylight::day_length_minutes(lat, day_of_year, self.days_per_year) as u16;
@@ -223,11 +236,6 @@ impl Climate {
         let year = i64::from(self.days_per_year);
         let phase = (i64::from(day_of_year) - (year / 4 + 30)) * trig::FULL_TURN / year;
         let season = trig::cos(phase);
-        let osc = if neutral {
-            0
-        } else {
-            self.oscillation.state().0
-        };
         for (i, (rate, p)) in self
             .precipitation
             .iter_mut()
@@ -249,15 +257,14 @@ impl Climate {
     }
 
     /// Runs whole years of neutral climate (no oscillation, no drift) at
-    /// daily resolution, seeding glaciers after the second year.
+    /// daily resolution. After the second year and again at the end, the ice
+    /// sheets are settled to the equilibrium of the glacier model (see
+    /// [`Cryosphere::settle_glaciers`]), so they start out stable instead of
+    /// spending decades adjusting.
     fn spin_up(&mut self, map: &Map, config: &ClimateConfig) {
         let years = config.spinup_years.max(2);
-        let land = |i: usize| matches!(map.tiles()[i].water, Water::Dry | Water::River);
-        let mut before = Vec::new();
+        let mut balance = Vec::new();
         for year in 0..years {
-            if year == 1 {
-                before = self.ice_mass();
-            }
             let mut night = vec![0i16; self.temperature.len()];
             for day in 0..self.days_per_year {
                 self.start_day(u64::from(day), true);
@@ -290,25 +297,81 @@ impl Climate {
             }
             self.end_year();
             if year == 1 {
-                let after = self.ice_mass();
-                let seed_years = i64::from(config.glacier_seed_years);
-                for (i, f) in self.cryosphere.tiles_mut().iter_mut().enumerate() {
-                    let surplus = after[i] - before[i];
-                    if land(i) && surplus > 0 {
-                        f.glacier =
-                            (i64::from(f.glacier) + surplus * seed_years).min(30_000_000) as u32;
-                    }
+                balance = self.glacier_mass_balance(map);
+                self.cryosphere.settle_glaciers(
+                    map,
+                    &balance,
+                    self.days_per_year,
+                    config.glacier_settle_years,
+                );
+            }
+        }
+        // The years since used daily means without weather, which melt a
+        // little less than the real run: settle once more, now from close by.
+        self.cryosphere.settle_glaciers(
+            map,
+            &balance,
+            self.days_per_year,
+            config.glacier_settle_years,
+        );
+    }
+
+    /// The yearly surface mass balance (snowfall minus melt, tenths of a
+    /// millimeter of ice) of every land tile as if it were under a glacier,
+    /// in neutral years with the daily cycle and weather of a real run and
+    /// glacier albedo. Measured on a probe, a copy of each land tile's snow
+    /// with a thick glacier underneath, stepped turn by turn like the real
+    /// run and averaged over a few years of weather. The weather and
+    /// precipitation are restored afterwards.
+    fn glacier_mass_balance(&mut self, map: &Map) -> Vec<i64> {
+        const PROBE: u32 = 2_000_000;
+        const YEARS: u64 = 3;
+        let land: Vec<usize> = (0..map.tiles().len())
+            .filter(|&i| matches!(map.tiles()[i].water, Water::Dry | Water::River))
+            .collect();
+        let mut probe: Vec<Frozen> = land
+            .iter()
+            .map(|&i| {
+                let mut f = *self.cryosphere.tile(i);
+                f.glacier = PROBE;
+                f
+            })
+            .collect();
+        let mass = |f: &Frozen| i64::from(f.snow) + i64::from(f.glacier);
+        let before: Vec<i64> = probe.iter().map(mass).collect();
+        let saved = (self.weather.clone(), self.precipitation.clone());
+        for day in 0..u64::from(self.days_per_year) * YEARS {
+            self.start_day_with(day, true, 0);
+            for quarter in 0..TURNS_PER_DAY {
+                let date = Date::from_turn(day * TURNS_PER_DAY + quarter, self.days_per_year);
+                let now = quarter_day(&date);
+                let share = diurnal_share(date.time_of_day);
+                let mut season_by_lag = [None; 128];
+                for (f, &i) in probe.iter_mut().zip(&land) {
+                    let profile = &self.profiles[i];
+                    let scale = diurnal_scale(self.daylight[i / self.width]);
+                    let lag = usize::from(profile.seasonal_lag_days).min(127);
+                    let season = *season_by_lag[lag]
+                        .get_or_insert_with(|| seasonal_cosine(profile, now, self.days_per_year));
+                    let temp = mean_with_season(profile, season, 0, 0)
+                        + i64::from(profile.diurnal_range) * scale / 1000 * share / 1000
+                        - cryosphere::GLACIER_COOLING
+                        + i64::from(self.weather.temperature(i));
+                    cryosphere::step_land_quarter(
+                        f,
+                        i64::from(clamp16(temp)),
+                        self.precipitation[i],
+                        self.days_per_year,
+                    );
                 }
             }
         }
-    }
-
-    fn ice_mass(&self) -> Vec<i64> {
-        self.cryosphere
-            .tiles()
-            .iter()
-            .map(|f| i64::from(f.snow) + i64::from(f.glacier))
-            .collect()
+        (self.weather, self.precipitation) = saved;
+        let mut balance = vec![0; map.tiles().len()];
+        for ((&i, f), b) in land.iter().zip(&probe).zip(&before) {
+            balance[i] = (mass(f) - b) / YEARS as i64;
+        }
+        balance
     }
 
     /// Snow, ice and soil water for `quarters` quarter-days.
@@ -452,9 +515,13 @@ impl Climate {
     }
 
     fn update_temperatures(&mut self, turn: u64) {
-        let date = Date::from_turn(turn, self.days_per_year);
         let osc = self.oscillation.state().0;
         let drift = self.drift.anomaly();
+        self.update_temperatures_with(turn, osc, drift);
+    }
+
+    fn update_temperatures_with(&mut self, turn: u64, osc: i64, drift: i64) {
+        let date = Date::from_turn(turn, self.days_per_year);
         // The seasonal cosine depends on the tile only through its lag:
         // compute it once per distinct lag (same formula as `temperature_at`).
         let now = quarter_day(&date);

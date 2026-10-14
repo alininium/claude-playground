@@ -1,11 +1,13 @@
 //! Winds and rain shadows, seasonal and oscillation-driven rain, weather,
-//! soil water and floods, frost-free seasons and day length.
+//! soil water and floods, frost-free seasons and day length, and ice
+//! sheets that start out settled.
 
 mod common;
 
 use common::Fixture;
 use societies::Simulation;
 use societies::biome::Biome;
+use societies::climate::cryosphere::GLACIER;
 use societies::config::SimConfig;
 use societies::map::Water;
 use societies::map::hydrology::prevailing_wind;
@@ -208,4 +210,38 @@ fn midnight_sun_and_polar_night() {
     assert_eq!(sim.climate().day_length_minutes(0), 1440);
     let last_row = sim.map().height() - 1;
     assert_eq!(sim.climate().day_length_minutes(last_row), 0);
+}
+
+#[test]
+fn ice_sheets_start_settled() {
+    // Without the oscillation, drift and eruptions, the climate only has
+    // weather left: the ice should hold steady from the first turn.
+    let mut sim = common::sim_with(Fixture::Medium, |c| {
+        c.initial_cities = 0;
+        c.climate.oscillation.amplitude_tenths = 0;
+        c.climate.oscillation.drift_amplitude_tenths = 0;
+        c.volcanoes.eruptions_per_millennium = [0; 5];
+    });
+    let measure = |sim: &Simulation| {
+        let c = sim.climate().cryosphere();
+        let n = sim.map().tile_count() as usize;
+        let tiles = (0..n)
+            .filter(|&i| is_land(sim, i) && c.tile(i).glacier >= GLACIER)
+            .count() as i64;
+        let volume: i64 = (0..n).map(|i| i64::from(c.tile(i).glacier)).sum();
+        (tiles, volume)
+    };
+    let (tiles, volume) = measure(&sim);
+    assert!(tiles > 50, "only {tiles} glaciated tiles");
+    let turns = sim.config().turns_per_year() * 10;
+    sim.run(turns);
+    let (tiles_after, volume_after) = measure(&sim);
+    assert!(
+        (tiles_after - tiles).abs() * 100 <= tiles * 3,
+        "glaciated tiles {tiles} -> {tiles_after} in 10 years"
+    );
+    assert!(
+        (volume_after - volume).abs() * 100 <= volume * 2,
+        "ice volume {volume} -> {volume_after} in 10 years"
+    );
 }
