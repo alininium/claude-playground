@@ -122,7 +122,7 @@ T = annual mean + seasonal swing·cos(2π(t − solstice − lag)/year)
 | **Frozen ground** | Frost penetration and active-layer thaw both follow the **Stefan solution**, `depth = α·√(degree-days)`. This is common in frozen-ground engineering and permafrost mapping. Snow cover insulates the ground. **Permafrost** is ground at or below 0 °C for at least two consecutive years (International Permafrost Association). | Frost α = 5 cm, cut 4× (α halved) under 10 cm of snow. Thaw α = 3 cm, as an active layer from the top. The ground counts as thawed only when the active layer reaches the bottom of the winter frost. Permafrost is flagged after **one** full year without thawing, not two. |
 | **Glaciers** | Glaciers form where snow survives the summer and turns to firn and then ice. Real glacier flow follows Glen's flow law (strain rate ∝ stress³). | Snow beyond 1 m water equivalent converts to glacier ice. Instead of Glen's law, ice creeps by **capped linear diffusion**: (thickness difference)/20 000 per day, at most 10 mm of ice per neighbor per day (meters per year). Glaciers calve 1/20 000 of their thickness per day (same cap) into adjacent seas and lakes. A tile counts as glaciated at 1 m. |
 | **Ice-albedo feedback** | Ice and snow reflect more sunlight, which cools the surface and helps ice persist. This feedback drives the classic energy-balance models (Budyko, 1969; Sellers, 1969). | Fixed local cooling instead of a radiation budget: glacier −4 °C, sea or lake ice thicker than 30 cm −2 °C, snow −1.5 °C, thin ice −1 °C. |
-| **Spin-up** | Climate models are spun up to equilibrium before use. | 4 years of neutral climate (no weather, oscillation or drift) at daily resolution before turn 0. After year 2, every land tile whose snow survived the summer gets 300 years' worth of that surplus as glacier ice (up to 3 km). This is how the polar caps exist at turn 0. They keep adjusting for a few decades afterward (see figure 4). |
+| **Spin-up** | Climate models are spun up to equilibrium before use. Ice-sheet models take thousands of years to equilibrate, so they use **accelerated (asynchronous) spin-up**: the slow ice is stepped with long time steps against a fixed climate. | 4 years of neutral climate (no oscillation or drift; no weather) at daily resolution before turn 0. The ice sheets are settled after year 2 and again at the end. First a **probe** finds each land tile's yearly surface mass balance (snowfall minus melt) as if it were under a glacier. The probe reproduces a real run: quarter-day steps with the daily cycle, weather, and glacier albedo, averaged over 3 years of weather. Then the glacier model (same creep and calving as the daily one) runs forward in **one-year steps** from that fixed balance until the total ice changes by less than 0.1% per century. That usually takes 500–1000 years and at most `glacier_settle_years` (20 000). The polar caps therefore start in equilibrium. Without the oscillation and drift, the ice volume changes by well under 1% over the first decades, against about −16% per decade with the old seeding. |
 
 ## 9. Yearly statistics and climate normals (`src/climate/stats.rs`)
 
@@ -217,9 +217,11 @@ figures (shares by true area; three 256×128 worlds):
   feedback.
 - Volcanoes do not change the terrain.
 - Climate normals are a 10-year moving average, and regional extremes are
-  judged after 20 years of record, while the ice sheets settle for a few
-  decades after world creation. That is why cold spells near the poles
-  outnumber heat waves early on.
+  judged after 20 years of record. Early regional records are noisy.
+- Permafrost ratchets: once a cold winter freezes the ground deeper than
+  the next summer thaws, it stays frozen (there is no heat from below). So
+  the permafrost area rises for the first decade or two after world
+  creation (16% → 19.6% of land in figure 4).
 - The map does not wrap east-west.
 
 ## Figures

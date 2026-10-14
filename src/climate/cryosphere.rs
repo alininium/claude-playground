@@ -41,6 +41,8 @@ pub const SOLID_ICE: u32 = 1_000;
 pub const SNOW_COVER: u32 = 500;
 /// Glacier ice thicker than this (1 m) counts as a glacier.
 pub const GLACIER: u32 = 10_000;
+/// Albedo cooling of a glacier, tenths of a degree.
+pub const GLACIER_COOLING: i64 = 40;
 
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
@@ -129,7 +131,7 @@ impl Cryosphere {
     pub fn albedo_cooling(&self, index: usize) -> i64 {
         let f = &self.tiles[index];
         if f.glacier >= GLACIER {
-            40
+            GLACIER_COOLING
         } else if f.ice >= 3 * SOLID_ICE {
             20
         } else if f.snow >= SNOW_COVER {
@@ -170,9 +172,7 @@ impl Cryosphere {
                     if tile.water == Water::River {
                         water_ice(&mut f.ice, t, 0, q, 800);
                     }
-                    // mm per year → tenths of a millimeter in this step.
-                    let precipitation = i64::from(rate) * 10 * q / per_year;
-                    *melt = land(f, t, q, precipitation);
+                    *melt = land(f, t, q, precipitation_step(rate, q, per_year));
                 }
             }
         }
@@ -191,14 +191,11 @@ impl Cryosphere {
             }
             for nb in map.neighbors(i) {
                 match map.tiles()[nb].water {
-                    Water::Ocean | Water::Lake => delta[i] -= (g / 20_000).min(MAX_FLOW),
+                    Water::Ocean | Water::Lake => delta[i] -= calving(g),
                     _ => {
-                        let other = i64::from(self.tiles[nb].glacier);
-                        if g > other {
-                            let flux = ((g - other) / 20_000).min(MAX_FLOW);
-                            delta[i] -= flux;
-                            delta[nb] += flux;
-                        }
+                        let flux = creep(g, i64::from(self.tiles[nb].glacier));
+                        delta[i] -= flux;
+                        delta[nb] += flux;
                     }
                 }
             }
@@ -208,6 +205,95 @@ impl Cryosphere {
         }
     }
 
+    /// Runs the glacier model forward in steps of one year until the ice
+    /// stops changing (or for `max_years`), with a fixed yearly surface mass
+    /// balance per tile (tenths of a millimeter of ice; see
+    /// `Climate::glacier_mass_balance`). Flow and calving are the daily ones
+    /// times the days of a year, so the ice ends up where the daily model
+    /// keeps it. Returns the years it took.
+    ///
+    /// Ice sheets take thousands of years to settle, far too long to
+    /// simulate day by day before turn 0; a year-long step is stable here
+    /// because a tile sheds at most 8 · 364 / 20000 ≈ 15% of its excess over
+    /// its neighbors per step.
+    pub(crate) fn settle_glaciers(
+        &mut self,
+        map: &Map,
+        balance: &[i64],
+        days_per_year: u32,
+        max_years: u32,
+    ) -> u32 {
+        let n = self.tiles.len();
+        let days = i64::from(days_per_year);
+        let land = |i: usize| matches!(map.tiles()[i].water, Water::Dry | Water::River);
+        let mut g: Vec<i64> = self.tiles.iter().map(|f| i64::from(f.glacier)).collect();
+        let mut delta = vec![0i64; n];
+        // Tiles that may change: those with ice or a positive balance, and
+        // their neighbors. `stamp` dedupes them.
+        let mut stamp = vec![u32::MAX; n];
+        let mut active: Vec<usize> = (0..n)
+            .filter(|&i| land(i) && (g[i] > 0 || balance[i] > 0))
+            .collect();
+        let mut years = 0;
+        let mut last_volume = -1;
+        while years < max_years {
+            years += 1;
+            let mut touched = Vec::with_capacity(active.len() * 2);
+            let mut touch = |i: usize, touched: &mut Vec<usize>| {
+                if stamp[i] != years {
+                    stamp[i] = years;
+                    touched.push(i);
+                }
+            };
+            for &i in &active {
+                touch(i, &mut touched);
+                if g[i] == 0 {
+                    continue;
+                }
+                for nb in map.neighbors(i) {
+                    match map.tiles()[nb].water {
+                        Water::Ocean | Water::Lake => delta[i] -= calving(g[i]) * days,
+                        _ => {
+                            let flux = creep(g[i], g[nb]) * days;
+                            if flux > 0 {
+                                delta[i] -= flux;
+                                delta[nb] += flux;
+                                touch(nb, &mut touched);
+                            }
+                        }
+                    }
+                }
+            }
+            for &i in &touched {
+                g[i] = (g[i] + delta[i] + balance[i]).max(0);
+                delta[i] = 0;
+            }
+            touched.retain(|&i| g[i] > 0 || balance[i] > 0);
+            active = touched;
+            // Settled once the total changes by under 0.1% (plus 10 cm per
+            // tile) in a century. Single tiles at the edges never quite
+            // stop: they flicker by a few centimeters, because the daily
+            // creep is rounded to whole units.
+            if years.is_multiple_of(100) {
+                let volume: i64 = active.iter().map(|&i| g[i]).sum();
+                let tolerance = volume / 1000 + active.len() as i64 * 1_000;
+                if (volume - last_volume).abs() <= tolerance {
+                    break;
+                }
+                last_volume = volume;
+            }
+        }
+        for (f, &ice) in self.tiles.iter_mut().zip(&g) {
+            f.glacier = ice.min(i64::from(u32::MAX)) as u32;
+            if f.glacier >= GLACIER {
+                f.frost = MAX_FROST;
+                f.thaw = 0;
+                f.permafrost = true;
+            }
+        }
+        years
+    }
+
     /// Called once a year: ground that never thawed is permafrost.
     pub fn end_year(&mut self) {
         for f in &mut self.tiles {
@@ -215,10 +301,34 @@ impl Cryosphere {
             f.thawed_this_year = f.frost == 0;
         }
     }
+}
 
-    pub(crate) fn tiles_mut(&mut self) -> &mut [Frozen] {
-        &mut self.tiles
+/// Precipitation of `quarters` quarter-days at `rate` mm per year, in
+/// tenths of a millimeter.
+fn precipitation_step(rate: u16, quarters: i64, quarters_per_year: i64) -> i64 {
+    i64::from(rate) * 10 * quarters / quarters_per_year
+}
+
+/// Advances the snow and glacier of one land tile by one quarter-day, as
+/// [`Cryosphere::step`] does; for probes run outside the real cryosphere.
+pub(crate) fn step_land_quarter(f: &mut Frozen, temperature: i64, rate: u16, days_per_year: u32) {
+    let per_year = i64::from(days_per_year.max(1)) * 4;
+    land(f, temperature, 1, precipitation_step(rate, 1, per_year));
+}
+
+/// Daily creep of ice `g` thick toward a neighbor with `other` (tenths of a
+/// millimeter): proportional to the difference, capped.
+fn creep(g: i64, other: i64) -> i64 {
+    if g > other {
+        ((g - other) / 20_000).min(MAX_FLOW)
+    } else {
+        0
     }
+}
+
+/// Daily calving of ice `g` thick into a neighboring sea or lake.
+fn calving(g: i64) -> i64 {
+    (g / 20_000).min(MAX_FLOW)
 }
 
 /// Stefan's law growth below `freezing_point`, degree-day melt above it.
@@ -392,6 +502,54 @@ mod tests {
             "{} vs {}",
             bare.frost,
             snowy.frost
+        );
+    }
+
+    #[test]
+    fn glaciers_settle_to_a_steady_state() {
+        use crate::map::TerrainConfig;
+        use crate::rng::SimRng;
+        let map = Map::generate(64, 32, &TerrainConfig::default(), &mut SimRng::from_seed(5));
+        let land = |i: usize| matches!(map.tiles()[i].water, Water::Dry | Water::River);
+        // Snow piles up 30 cm a year in the polar rows and 2 m melts elsewhere.
+        let balance: Vec<i64> = (0..map.tile_count() as usize)
+            .map(|i| {
+                let lat = map.latitude_tenths(map.position_of(i as u32).y).abs();
+                match (land(i), lat >= 600) {
+                    (false, _) => 0,
+                    (true, true) => 3_000,
+                    (true, false) => -20_000,
+                }
+            })
+            .collect();
+        assert!(balance.iter().any(|&b| b > 0), "no polar land on this map");
+        let mut cryo = Cryosphere::new(map.tile_count() as usize);
+        let years = cryo.settle_glaciers(&map, &balance, 364, 20_000);
+        assert!(years < 20_000, "did not settle");
+        let volume = |c: &Cryosphere| c.tiles().iter().map(|f| i64::from(f.glacier)).sum::<i64>();
+        let settled = volume(&cryo);
+        assert!(settled > 0);
+        // Another century barely changes it (these sheets are only meters
+        // thick, so the edge flicker is a few percent of them).
+        let mut again = cryo.clone();
+        again.settle_glaciers(&map, &balance, 364, 100);
+        let change = (volume(&again) - settled).abs();
+        assert!(change * 30 <= settled, "{settled} -> {}", volume(&again));
+        for (i, f) in cryo.tiles().iter().enumerate() {
+            if !land(i) {
+                assert_eq!(f.glacier, 0, "ice on water");
+            } else if f.glacier >= GLACIER {
+                assert!(f.permafrost);
+            }
+        }
+        // Ice flows out of the accumulation zone a little, but not far.
+        let spread = (0..balance.len())
+            .filter(|&i| balance[i] < 0 && cryo.tile(i).glacier >= GLACIER)
+            .count();
+        let core = (0..balance.len()).filter(|&i| balance[i] > 0).count();
+        assert!(
+            spread < core,
+            "{spread} glaciated ablation tiles for {core} accumulation tiles"
         );
     }
 }

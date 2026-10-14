@@ -234,8 +234,8 @@ and snow cover changed.
 **What changed.** Annual mean temperature, year 50 minus year 1, plus the
 trends. With the default drift (150-year timescale, ±0.5 °C) there is no
 strong climate trend over 50 years. The temperature difference is mostly the
-oscillation, weather and volcanic aerosols. The glacier changes are the ice
-sheets still settling after world creation.
+oscillation, weather and volcanic aerosols. The ice sheets start out settled
+(see the spin-up in docs/MODEL.md), so the glacier changes are small.
 
 ![Annual mean temperature difference and 50-year trends](docs/figures/4-fifty-years-trends.png)
 
