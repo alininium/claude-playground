@@ -5,6 +5,7 @@ mod common;
 
 use serde_json::{Value, json};
 use societies::biome::Biome;
+use societies::city::People;
 use societies::map::{Landform, Soil};
 use societies::rng::SimRng;
 use societies::tech::{Knowledge, Site, TechError, TechTree};
@@ -177,10 +178,14 @@ fn starting_knowledge_follows_the_environment() {
     let mut wetland = Vec::new();
     for seed in 0..200 {
         let mut rng = SimRng::from_seed(seed);
-        grassland.push(tree.starting_knowledge(&site(Biome::Grassland), &mut rng));
+        grassland.push(tree.starting_knowledge(
+            &site(Biome::Grassland),
+            People::Civilized,
+            &mut rng,
+        ));
         let mut wet = site(Biome::Wetland);
         wet.river = true;
-        wetland.push(tree.starting_knowledge(&wet, &mut rng));
+        wetland.push(tree.starting_knowledge(&wet, People::Civilized, &mut rng));
     }
     let all = |k: &[Knowledge], f: &dyn Fn(&Knowledge) -> bool| k.iter().all(f);
     let count = |k: &[Knowledge], f: &dyn Fn(&Knowledge) -> bool| k.iter().filter(|x| f(x)).count();
@@ -218,8 +223,8 @@ fn starting_knowledge_follows_the_environment() {
 fn starting_knowledge_is_deterministic() {
     let tree = TechTree::builtin();
     let s = site(Biome::MediterraneanShrubland);
-    let a = tree.starting_knowledge(&s, &mut SimRng::from_seed(9));
-    let b = tree.starting_knowledge(&s, &mut SimRng::from_seed(9));
+    let a = tree.starting_knowledge(&s, People::Civilized, &mut SimRng::from_seed(9));
+    let b = tree.starting_knowledge(&s, People::Civilized, &mut SimRng::from_seed(9));
     assert_eq!(a, b);
 }
 
@@ -232,11 +237,13 @@ fn cities_start_knowing_technologies() {
     assert!(!cities.is_empty());
     for c in &cities {
         assert!(c.knowledge.knows(fire), "{} does not know fire", c.name);
-        assert!(
-            c.knowledge.count() > 9,
-            "{} knows only the baseline",
-            c.name
-        );
+        if c.people == People::Civilized {
+            assert!(
+                c.knowledge.count() > 9,
+                "{} knows only the baseline",
+                c.name
+            );
+        }
         let site = Site::of(sim.map(), sim.biomes(), sim.map().index(c.position));
         for v in c.knowledge.variants() {
             let variant = tree.variant(v);
@@ -274,4 +281,35 @@ fn a_custom_tree_changes_knowledge_but_not_the_world() {
     }
     assert!(a.iter().any(|c| c.knowledge.knows(herbs)));
     assert_ne!(stock.state_digest(), custom.state_digest());
+}
+
+#[test]
+fn barbarians_start_with_fewer_technologies() {
+    let tree = TechTree::builtin();
+    let writingless = tree.id("counting_tokens").unwrap();
+    let s = site(Biome::Grassland);
+    let (mut civilized, mut barbarian) = (0, 0);
+    for seed in 0..200 {
+        let c = tree.starting_knowledge(&s, People::Civilized, &mut SimRng::from_seed(seed));
+        let b = tree.starting_knowledge(&s, People::Barbarian, &mut SimRng::from_seed(seed));
+        // Beyond the 9 baseline technologies everybody knows.
+        civilized += c.count() - 9;
+        barbarian += b.count() - 9;
+        // Knowledge-category technologies have a barbarian share of 0.
+        assert!(!b.knows(writingless));
+        for t in b.techs() {
+            assert!(tree.prerequisites_met(&b, t));
+        }
+    }
+    assert!(
+        barbarian * 2 < civilized,
+        "{barbarian} vs {civilized} beyond the baseline"
+    );
+}
+
+#[test]
+fn barbarian_shares_are_per_mille() {
+    let mut file = builtin_value();
+    file["barbarian_share"]["crafts"] = json!(1200);
+    assert_rejected(&file, "barbarian_share for Crafts is 1200");
 }

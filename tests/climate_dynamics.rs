@@ -218,6 +218,7 @@ fn ice_sheets_start_settled() {
     // weather left: the ice should hold steady from the first turn.
     let mut sim = common::sim_with(Fixture::Medium, |c| {
         c.initial_cities = 0;
+        c.initial_barbarians = 0;
         c.climate.oscillation.amplitude_tenths = 0;
         c.climate.oscillation.drift_amplitude_tenths = 0;
         c.volcanoes.eruptions_per_millennium = [0; 5];
