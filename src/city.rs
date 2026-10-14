@@ -62,8 +62,8 @@ pub enum People {
     Barbarian,
 }
 
-/// Places the starting settlements when the world is created; none are
-/// founded during play. `turn` is the turn the world starts at (0 for a new
+/// Places the starting settlements when the world is created. Later ones
+/// are founded by caravans (see `caravan`). `turn` is the turn the world starts at (0 for a new
 /// world).
 ///
 /// First come `initial_cities` civilized cities, on sites like those of the

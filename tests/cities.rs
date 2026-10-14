@@ -6,7 +6,7 @@ mod common;
 use common::{Fixture, sim_with};
 
 #[test]
-fn settlements_start_with_people_and_none_appear_during_play() {
+fn settlements_start_with_people_and_stay_put() {
     use societies::city::People;
     let mut sim = common::sim(Fixture::Small);
     let start = sim.cities();
@@ -31,13 +31,26 @@ fn settlements_start_with_people_and_none_appear_during_play() {
         assert_eq!(living as u64, c.population, "{}", c.name);
     }
 
+    // The starting settlements are all placed at world creation and never
+    // move. Cities founded later (by caravans) come after them, with new
+    // ids and a founding date during play.
     sim.run(sim.config().turns_per_year() / 4);
     let end = sim.cities();
     assert_eq!(
-        end.iter().map(|c| (c.id, c.position)).collect::<Vec<_>>(),
-        start.iter().map(|c| (c.id, c.position)).collect::<Vec<_>>(),
-        "no cities may appear (or move) during play"
+        end[..start.len()]
+            .iter()
+            .map(|c| (c.id, c.position, c.founded_on))
+            .collect::<Vec<_>>(),
+        start
+            .iter()
+            .map(|c| (c.id, c.position, c.founded_on))
+            .collect::<Vec<_>>(),
+        "starting settlements may not move or disappear"
     );
+    for (k, c) in end.iter().enumerate().skip(start.len()) {
+        assert_eq!(c.id.0 as usize, k, "ids are handed out in order");
+        assert!(c.founded_on > 0, "{} founded at creation", c.name);
+    }
 }
 
 #[test]
@@ -247,15 +260,61 @@ fn event_log_records_every_city_founding_exactly_once() {
         "one founding event per city, in id order"
     );
 
-    // Playing on never founds (or logs) another city, and the log is append-only.
+    // Playing on, with a caravan sent out to found a new city: the log is
+    // append-only, and every city founded is logged exactly once, on the
+    // turn it was founded.
     let before = sim.events().events().to_vec();
-    sim.run(sim.config().turns_per_year());
+    send_caravan(&mut sim, cities[0].id);
+    sim.run(sim.config().turns_per_year() / 2);
+    let cities = sim.cities();
     let after = sim.events().events();
     assert_eq!(&after[..before.len()], &before[..], "history was rewritten");
     assert!(
-        after[before.len()..]
-            .iter()
-            .all(|e| !matches!(e, SimEvent::CityFounded { .. })),
-        "a city was founded during play"
+        cities.len() > expected.len(),
+        "no city was founded during play"
     );
+    let founded: Vec<_> = after
+        .iter()
+        .filter_map(|e| match e {
+            SimEvent::CityFounded {
+                turn,
+                id,
+                name,
+                position,
+                people,
+            } => Some((*turn, *id, name.clone(), *position, *people)),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        })
+        .collect();
+    let expected: Vec<_> = cities
+        .iter()
+        .map(|c| (c.founded_on, c.id, c.name.clone(), c.position, c.people))
+        .collect();
+    assert_eq!(
+        founded, expected,
+        "one founding event per city, in id order"
+    );
+}
+
+/// Makes enough adults of `city` choose to settle away to send a caravan.
+fn send_caravan(sim: &mut societies::Simulation, city: societies::city::CityId) {
+    use societies::people::{ActionKind, Activity, Person};
+    let (turn, tpy) = (sim.turn(), sim.config().turns_per_year());
+    let adult = societies::people::founding::FoundingConfig::builtin().adult_age;
+    let wanted = societies::caravan::CaravanConfig::builtin().min_adults as usize + 3;
+    let world = sim.world_mut();
+    let mut query = world.query::<(&societies::people::PersonId, &Person, &mut Activity)>();
+    let mut adults: Vec<_> = query
+        .iter_mut(world)
+        .filter(|(_, p, _)| p.home == city && p.age_years(turn, tpy) >= adult)
+        .collect();
+    adults.sort_by_key(|(id, ..)| **id);
+    for (_, _, activity) in adults.iter_mut().take(wanted) {
+        **activity = Activity {
+            action: ActionKind::SettleAway,
+            since: turn,
+            until: turn + 40,
+        };
+    }
 }

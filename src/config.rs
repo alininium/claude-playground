@@ -17,7 +17,7 @@ pub struct SimConfig {
     pub climate: ClimateConfig,
     pub volcanoes: VolcanoConfig,
     /// Civilized cities placed at world creation, on cradle sites like
-    /// those of the first cities (none are founded later).
+    /// those of the first cities (later ones are founded by caravans).
     pub initial_cities: u32,
     /// Barbarian tribes placed at world creation, anywhere habitable.
     pub initial_barbarians: u32,
