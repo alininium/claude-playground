@@ -1,0 +1,3086 @@
+{
+  "format": "societies-technologies",
+  "version": 1,
+  "start_year": -4500,
+  "notes": [
+    "All numbers are integers. Multipliers are per mille (1000 = unchanged, 1300 = +30%).",
+    "earliest_bce is the earliest known real-world date, for calibration only.",
+    "invention: relative chance that a city invents the technology on its own (0 = never, baseline 100). diffusion: how readily it spreads to cities in contact (0-1000).",
+    "requires: all of these must be known. requires_any: at least one of these. Knowing any variant of a technology counts as knowing it.",
+    "needs: the city's surroundings must offer this for the technology (or variant) to be invented or adopted. Resources may be local or reached by trade; the engine decides.",
+    "start: share (per mille) of cities at the start year that know it, among cities whose surroundings match 'where' and 'needs'.",
+    "variants: regional forms of a technology, each with its own needs, start and extra effects added to the technology's own.",
+    "effects: {kind, value, where?, feature?}. 'where' limits an effect to tiles of the given biomes, landforms, soils or water access. Kinds are listed in effect_kinds."
+  ],
+  "effect_kinds": {
+    "unlock": "Enables a feature (named in 'feature'); value is 1.",
+    "food_yield": "Multiplier on food from farmed land.",
+    "herd_yield": "Multiplier on food from pasture.",
+    "fish_yield": "Multiplier on food from rivers, lakes and coasts.",
+    "farmable": "Makes otherwise unfarmable land farmable, at this per mille of normal yield.",
+    "soil_exhaustion": "Multiplier on fertility lost to farming (below 1000 = soils last longer).",
+    "drought_resilience": "Per mille of the drought penalty that is avoided.",
+    "irrigation_range": "Additive: tiles from a river or lake that count as irrigated.",
+    "salinization": "Per mille chance per century that irrigated land loses fertility to salt.",
+    "flood_farming": "Per mille of a year's river flood days turned into extra fertility on floodplains.",
+    "food_storage": "Additive: months of food that can be stored against bad years.",
+    "preservation": "Per mille less loss of stored food.",
+    "season_prediction": "Per mille of the harvest loss from badly timed planting that is avoided.",
+    "disease": "Multiplier on disease mortality in cities.",
+    "mortality": "Multiplier on general mortality.",
+    "max_city_size": "Multiplier on the population a city can hold.",
+    "building_durability": "Multiplier on how long buildings last (floods, earthquakes, age).",
+    "construction": "Multiplier on building speed and labour efficiency.",
+    "labor_mobilization": "Additive: per mille of the population available for public works.",
+    "craft_output": "Multiplier on craft production.",
+    "trade_goods": "Additive: tradable goods produced, per mille of population.",
+    "move_cost_land": "Multiplier on the cost of moving over land (lower is better).",
+    "move_cost_river": "Multiplier on the cost of moving on rivers and lakes.",
+    "move_cost_sea": "Multiplier on the cost of moving along coasts and at sea.",
+    "trade_range": "Multiplier on how far trade reaches.",
+    "trade_efficiency": "Multiplier on the gains from trade.",
+    "diffusion": "Multiplier on how readily the city adopts technologies from contacts.",
+    "research": "Multiplier on the city's own invention rate.",
+    "tech_retention": "Per mille reduction in technologies lost when a city declines or collapses.",
+    "admin_range": "Multiplier on the distance over which a city can control others.",
+    "tax_efficiency": "Multiplier on the surplus a city can collect as taxes or tribute.",
+    "stability": "Additive: per mille shift in internal stability (negative = more unrest).",
+    "attack": "Multiplier on military attack strength.",
+    "defense": "Multiplier on military defense strength.",
+    "mobility": "Multiplier on how far armies and raiders move.",
+    "fortification": "Additive: per mille bonus to defending a city.",
+    "siege": "Multiplier on attacking fortified cities.",
+    "deforestation": "Additive: per mille extra yearly timber and charcoal demand per capita."
+  },
+  "resources": {
+    "copper": "Copper ores; most common near volcanic arcs (porphyry deposits) and in old mountain belts.",
+    "tin": "Tin ores; rare and far apart, usually in granite uplands. The reason for long-distance Bronze Age trade.",
+    "arsenic_ores": "Arsenic-bearing copper ores (fahlore); found with copper.",
+    "gold": "Gold; in mountains and as placer gold in rivers below them.",
+    "silver": "Silver; usually with lead ores in mountains.",
+    "lead": "Lead ores; in hills and mountains.",
+    "salt": "Salt; on dry coasts, salt lakes and in deserts.",
+    "clay": "Clay; on alluvial soils and in river valleys.",
+    "timber": "Timber; in forest biomes.",
+    "stone": "Building stone; in hills and mountains.",
+    "wild_horses": "Wild horses; in grasslands and cold steppes.",
+    "wild_asses": "Wild asses; in hot deserts, savannas and Mediterranean scrub.",
+    "wild_camels": "Wild camels; in hot and cold deserts."
+  },
+  "technologies": [
+    {
+      "id": "fire",
+      "name": "Fire",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [],
+      "description": "Cooking, warmth, land clearing."
+    },
+    {
+      "id": "stone_tools",
+      "name": "Stone tools",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [],
+      "description": "Flaked and ground stone tools."
+    },
+    {
+      "id": "foraging",
+      "name": "Foraging and hunting",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "foraging"
+        }
+      ],
+      "description": "Wild food: the fallback when harvests fail."
+    },
+    {
+      "id": "bow",
+      "name": "Bow and arrow",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [
+        {
+          "kind": "attack",
+          "value": 1000
+        }
+      ],
+      "description": "Hunting and fighting at range."
+    },
+    {
+      "id": "cordage",
+      "name": "Cordage and baskets",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [],
+      "description": "Ropes, nets, containers."
+    },
+    {
+      "id": "rafts",
+      "name": "Rafts",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [],
+      "description": "Crossing rivers and lakes."
+    },
+    {
+      "id": "villages",
+      "name": "Sedentary villages",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [],
+      "description": "Permanent settlement."
+    },
+    {
+      "id": "kin_leadership",
+      "name": "Kin-based leadership",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [],
+      "description": "Elders and lineages settle disputes."
+    },
+    {
+      "id": "ancestor_cults",
+      "name": "Ancestor cults",
+      "category": "baseline",
+      "earliest_bce": 10000,
+      "requires": [],
+      "invention": 0,
+      "diffusion": 1000,
+      "start": {
+        "share": 1000
+      },
+      "effects": [],
+      "description": "Shared ritual binding a community."
+    },
+    {
+      "id": "cereal_cultivation",
+      "name": "Cereal cultivation",
+      "category": "agriculture",
+      "earliest_bce": 9500,
+      "requires": [
+        "villages"
+      ],
+      "invention": 60,
+      "diffusion": 700,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "farming"
+        }
+      ],
+      "variants": [
+        {
+          "id": "wheat_barley",
+          "name": "Wheat and barley",
+          "needs": {
+            "biomes_any": [
+              "Grassland",
+              "TemperateForest",
+              "MediterraneanShrubland",
+              "Savanna",
+              "ColdDesert",
+              "HotDesert"
+            ]
+          },
+          "start": {
+            "share": 850,
+            "where": {
+              "biomes": [
+                "Grassland",
+                "TemperateForest",
+                "MediterraneanShrubland",
+                "Savanna",
+                "HotDesert",
+                "ColdDesert"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 1000
+            }
+          ],
+          "description": "Winter or spring sown; the Fertile Crescent package."
+        },
+        {
+          "id": "millet",
+          "name": "Millets",
+          "needs": {
+            "biomes_any": [
+              "Grassland",
+              "TemperateForest",
+              "Savanna",
+              "ColdDesert"
+            ]
+          },
+          "start": {
+            "share": 600,
+            "where": {
+              "biomes": [
+                "Grassland",
+                "TemperateForest"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 900
+            },
+            {
+              "kind": "drought_resilience",
+              "value": 200
+            }
+          ],
+          "description": "Quick-growing and drought tolerant; North China style."
+        },
+        {
+          "id": "rice",
+          "name": "Rice",
+          "needs": {
+            "biomes_any": [
+              "Wetland",
+              "TropicalSeasonalForest",
+              "TropicalRainforest",
+              "TemperateForest"
+            ],
+            "water_any": [
+              "river",
+              "lake"
+            ]
+          },
+          "start": {
+            "share": 400,
+            "where": {
+              "biomes": [
+                "Wetland",
+                "TropicalSeasonalForest"
+              ],
+              "water": [
+                "river",
+                "lake"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 1300,
+              "where": {
+                "water": [
+                  "river",
+                  "lake"
+                ]
+              }
+            },
+            {
+              "kind": "soil_exhaustion",
+              "value": 700
+            }
+          ],
+          "description": "Paddy rice: very high yields where water can be controlled."
+        },
+        {
+          "id": "sorghum",
+          "name": "Sorghum",
+          "needs": {
+            "biomes_any": [
+              "Savanna",
+              "HotDesert",
+              "TropicalSeasonalForest"
+            ]
+          },
+          "start": {
+            "share": 300,
+            "where": {
+              "biomes": [
+                "Savanna"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 950
+            },
+            {
+              "kind": "drought_resilience",
+              "value": 300
+            }
+          ],
+          "description": "Heat and drought tolerant African cereal."
+        }
+      ],
+      "description": "Sowing and harvesting grain: the foundation of surplus and cities."
+    },
+    {
+      "id": "legumes",
+      "name": "Legume cultivation",
+      "category": "agriculture",
+      "earliest_bce": 9000,
+      "requires": [
+        "cereal_cultivation"
+      ],
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 700
+      },
+      "effects": [
+        {
+          "kind": "food_yield",
+          "value": 1080
+        },
+        {
+          "kind": "soil_exhaustion",
+          "value": 850
+        }
+      ],
+      "description": "Lentils, peas, beans: protein, and they restore nitrogen to the soil."
+    },
+    {
+      "id": "root_crops",
+      "name": "Root and tuber cultivation",
+      "category": "agriculture",
+      "earliest_bce": 8000,
+      "requires": [
+        "villages"
+      ],
+      "needs": {
+        "biomes_any": [
+          "TropicalRainforest",
+          "TropicalSeasonalForest",
+          "Savanna",
+          "Wetland",
+          "Alpine",
+          "TemperateForest"
+        ]
+      },
+      "invention": 80,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "farming"
+        }
+      ],
+      "variants": [
+        {
+          "id": "yams_taro",
+          "name": "Yams and taro",
+          "needs": {
+            "biomes_any": [
+              "TropicalRainforest",
+              "TropicalSeasonalForest",
+              "Wetland"
+            ]
+          },
+          "start": {
+            "share": 500,
+            "where": {
+              "biomes": [
+                "TropicalRainforest",
+                "TropicalSeasonalForest"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "farmable",
+              "value": 800,
+              "where": {
+                "biomes": [
+                  "TropicalRainforest"
+                ]
+              }
+            },
+            {
+              "kind": "food_yield",
+              "value": 1000
+            }
+          ],
+          "description": "Farming where grain does poorly: the wet tropics."
+        },
+        {
+          "id": "potatoes",
+          "name": "Potatoes and highland tubers",
+          "needs": {
+            "biomes_any": [
+              "Alpine",
+              "TemperateForest",
+              "Grassland"
+            ],
+            "landforms_any": [
+              "Hills",
+              "Mountains"
+            ]
+          },
+          "start": {
+            "share": 200,
+            "where": {
+              "landforms": [
+                "Hills",
+                "Mountains"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "farmable",
+              "value": 700,
+              "where": {
+                "landforms": [
+                  "Mountains"
+                ]
+              }
+            },
+            {
+              "kind": "food_yield",
+              "value": 1050
+            }
+          ],
+          "description": "Frost-hardy highland crops."
+        }
+      ],
+      "description": "Vegetatively propagated crops: farming in the tropics and highlands."
+    },
+    {
+      "id": "tree_crops",
+      "name": "Tree crops",
+      "category": "agriculture",
+      "earliest_bce": 5000,
+      "requires": [
+        "cereal_cultivation"
+      ],
+      "invention": 150,
+      "diffusion": 400,
+      "effects": [
+        {
+          "kind": "trade_goods",
+          "value": 60
+        }
+      ],
+      "variants": [
+        {
+          "id": "olive_vine",
+          "name": "Olives and grapes",
+          "needs": {
+            "biomes_any": [
+              "MediterraneanShrubland"
+            ]
+          },
+          "start": {
+            "share": 100,
+            "where": {
+              "biomes": [
+                "MediterraneanShrubland"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 1150,
+              "where": {
+                "landforms": [
+                  "Hills"
+                ]
+              }
+            },
+            {
+              "kind": "trade_goods",
+              "value": 80
+            }
+          ],
+          "description": "Oil and wine: food and the great trade goods of the Mediterranean."
+        },
+        {
+          "id": "date_palm",
+          "name": "Date palms",
+          "needs": {
+            "biomes_any": [
+              "HotDesert",
+              "Savanna"
+            ],
+            "water_any": [
+              "river",
+              "lake"
+            ]
+          },
+          "start": {
+            "share": 150,
+            "where": {
+              "biomes": [
+                "HotDesert"
+              ],
+              "water": [
+                "river",
+                "lake"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 1200,
+              "where": {
+                "biomes": [
+                  "HotDesert"
+                ]
+              }
+            },
+            {
+              "kind": "food_storage",
+              "value": 2
+            }
+          ],
+          "description": "Oasis and river-valley staple; stores well."
+        },
+        {
+          "id": "tropical_fruit",
+          "name": "Bananas and tropical fruit trees",
+          "needs": {
+            "biomes_any": [
+              "TropicalRainforest",
+              "TropicalSeasonalForest"
+            ]
+          },
+          "start": {
+            "share": 100,
+            "where": {
+              "biomes": [
+                "TropicalRainforest"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 1100
+            }
+          ],
+          "description": "Year-round fruit in the wet tropics."
+        }
+      ],
+      "description": "Long-lived orchards that take years to bear but last generations."
+    },
+    {
+      "id": "small_livestock",
+      "name": "Small livestock herding",
+      "category": "agriculture",
+      "earliest_bce": 8500,
+      "requires": [
+        "villages"
+      ],
+      "invention": 60,
+      "diffusion": 700,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "herding"
+        },
+        {
+          "kind": "herd_yield",
+          "value": 1000
+        }
+      ],
+      "variants": [
+        {
+          "id": "sheep_goats",
+          "name": "Sheep and goats",
+          "needs": {
+            "biomes_any": [
+              "Grassland",
+              "MediterraneanShrubland",
+              "Savanna",
+              "ColdDesert",
+              "HotDesert",
+              "TemperateForest",
+              "Alpine"
+            ]
+          },
+          "start": {
+            "share": 900,
+            "where": {
+              "biomes": [
+                "Grassland",
+                "MediterraneanShrubland",
+                "Savanna",
+                "ColdDesert",
+                "TemperateForest",
+                "HotDesert"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "herd_yield",
+              "value": 1000,
+              "where": {
+                "landforms": [
+                  "Hills"
+                ]
+              }
+            }
+          ],
+          "description": "Grazing poor and hilly land."
+        },
+        {
+          "id": "llamas_alpacas",
+          "name": "Llamas and alpacas",
+          "needs": {
+            "biomes_any": [
+              "Alpine",
+              "Grassland"
+            ],
+            "landforms_any": [
+              "Mountains",
+              "Hills"
+            ]
+          },
+          "start": {
+            "share": 100,
+            "where": {
+              "biomes": [
+                "Alpine"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "herd_yield",
+              "value": 1100,
+              "where": {
+                "landforms": [
+                  "Mountains"
+                ]
+              }
+            },
+            {
+              "kind": "move_cost_land",
+              "value": 900,
+              "where": {
+                "landforms": [
+                  "Mountains"
+                ]
+              }
+            }
+          ],
+          "description": "High-altitude herds and pack animals."
+        },
+        {
+          "id": "reindeer",
+          "name": "Reindeer",
+          "needs": {
+            "biomes_any": [
+              "Tundra",
+              "BorealForest"
+            ]
+          },
+          "start": {
+            "share": 100,
+            "where": {
+              "biomes": [
+                "Tundra"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "herd_yield",
+              "value": 1000,
+              "where": {
+                "biomes": [
+                  "Tundra",
+                  "BorealForest"
+                ]
+              }
+            }
+          ],
+          "description": "Herding where nothing can be farmed."
+        }
+      ],
+      "description": "Animals that turn grass on unfarmable land into food."
+    },
+    {
+      "id": "cattle",
+      "name": "Cattle",
+      "category": "agriculture",
+      "earliest_bce": 8000,
+      "requires": [
+        "small_livestock"
+      ],
+      "invention": 80,
+      "diffusion": 600,
+      "effects": [
+        {
+          "kind": "herd_yield",
+          "value": 1150
+        },
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "draft_animals"
+        }
+      ],
+      "variants": [
+        {
+          "id": "taurine_cattle",
+          "name": "Taurine cattle",
+          "needs": {
+            "biomes_any": [
+              "Grassland",
+              "TemperateForest",
+              "MediterraneanShrubland"
+            ]
+          },
+          "start": {
+            "share": 750,
+            "where": {
+              "biomes": [
+                "Grassland",
+                "TemperateForest",
+                "MediterraneanShrubland"
+              ]
+            }
+          },
+          "effects": [],
+          "description": "Temperate cattle."
+        },
+        {
+          "id": "zebu",
+          "name": "Zebu",
+          "needs": {
+            "biomes_any": [
+              "Savanna",
+              "TropicalSeasonalForest",
+              "HotDesert"
+            ]
+          },
+          "start": {
+            "share": 400,
+            "where": {
+              "biomes": [
+                "Savanna",
+                "TropicalSeasonalForest"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "drought_resilience",
+              "value": 100
+            }
+          ],
+          "description": "Heat and drought tolerant humped cattle."
+        },
+        {
+          "id": "water_buffalo",
+          "name": "Water buffalo",
+          "needs": {
+            "biomes_any": [
+              "Wetland",
+              "TropicalSeasonalForest",
+              "TropicalRainforest"
+            ],
+            "water_any": [
+              "river",
+              "lake"
+            ]
+          },
+          "start": {
+            "share": 150,
+            "where": {
+              "biomes": [
+                "Wetland"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "food_yield",
+              "value": 1050,
+              "where": {
+                "water": [
+                  "river",
+                  "lake"
+                ]
+              }
+            }
+          ],
+          "description": "Draft animal for wet rice fields."
+        },
+        {
+          "id": "yak",
+          "name": "Yak",
+          "needs": {
+            "biomes_any": [
+              "Alpine",
+              "Tundra",
+              "ColdDesert"
+            ],
+            "landforms_any": [
+              "Mountains"
+            ]
+          },
+          "start": {
+            "share": 50,
+            "where": {
+              "biomes": [
+                "Alpine"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "herd_yield",
+              "value": 1100,
+              "where": {
+                "biomes": [
+                  "Alpine"
+                ]
+              }
+            }
+          ],
+          "description": "Cattle of the high cold plateaus."
+        }
+      ],
+      "description": "Large livestock: meat, hides, and later milk and traction."
+    },
+    {
+      "id": "pigs_poultry",
+      "name": "Pigs and poultry",
+      "category": "agriculture",
+      "earliest_bce": 8000,
+      "requires": [
+        "villages"
+      ],
+      "needs": {
+        "biomes_any": [
+          "TemperateForest",
+          "TemperateRainforest",
+          "BorealForest",
+          "TropicalSeasonalForest",
+          "TropicalRainforest",
+          "Wetland",
+          "Grassland",
+          "Savanna"
+        ]
+      },
+      "invention": 80,
+      "diffusion": 600,
+      "start": {
+        "share": 600,
+        "where": {
+          "biomes": [
+            "TemperateForest",
+            "TemperateRainforest",
+            "BorealForest",
+            "TropicalSeasonalForest",
+            "TropicalRainforest",
+            "Wetland"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "food_yield",
+          "value": 1050,
+          "where": {
+            "biomes": [
+              "TemperateForest",
+              "TemperateRainforest",
+              "BorealForest",
+              "TropicalSeasonalForest",
+              "TropicalRainforest"
+            ]
+          }
+        }
+      ],
+      "description": "Village animals living on scraps and forest mast."
+    },
+    {
+      "id": "secondary_products",
+      "name": "Milk and wool",
+      "category": "agriculture",
+      "earliest_bce": 7000,
+      "requires": [
+        "small_livestock",
+        "cattle"
+      ],
+      "invention": 200,
+      "diffusion": 500,
+      "start": {
+        "share": 50
+      },
+      "effects": [
+        {
+          "kind": "herd_yield",
+          "value": 1400
+        },
+        {
+          "kind": "trade_goods",
+          "value": 80
+        },
+        {
+          "kind": "food_storage",
+          "value": 1
+        }
+      ],
+      "description": "The 'secondary products revolution': living animals as a renewable source of milk, cheese and wool."
+    },
+    {
+      "id": "horse_domestication",
+      "name": "Horse domestication",
+      "category": "agriculture",
+      "earliest_bce": 3500,
+      "requires": [
+        "small_livestock"
+      ],
+      "needs": {
+        "resources_any": [
+          "wild_horses"
+        ]
+      },
+      "invention": 300,
+      "diffusion": 400,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "horse_riding"
+        },
+        {
+          "kind": "mobility",
+          "value": 1500
+        },
+        {
+          "kind": "move_cost_land",
+          "value": 800,
+          "where": {
+            "biomes": [
+              "Grassland",
+              "ColdDesert"
+            ]
+          }
+        }
+      ],
+      "description": "Riding and herding horses on the steppe."
+    },
+    {
+      "id": "pack_animals",
+      "name": "Donkeys and camels",
+      "category": "agriculture",
+      "earliest_bce": 3500,
+      "requires": [
+        "small_livestock"
+      ],
+      "invention": 300,
+      "diffusion": 400,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "pack_animals"
+        },
+        {
+          "kind": "trade_range",
+          "value": 1300
+        }
+      ],
+      "variants": [
+        {
+          "id": "donkey",
+          "name": "Donkey",
+          "needs": {
+            "resources_any": [
+              "wild_asses"
+            ]
+          },
+          "effects": [
+            {
+              "kind": "move_cost_land",
+              "value": 850
+            }
+          ],
+          "description": "The first pack animal of the river civilizations."
+        },
+        {
+          "id": "dromedary",
+          "name": "Dromedary camel",
+          "needs": {
+            "biomes_any": [
+              "HotDesert"
+            ],
+            "resources_any": [
+              "wild_camels"
+            ]
+          },
+          "effects": [
+            {
+              "kind": "move_cost_land",
+              "value": 650,
+              "where": {
+                "biomes": [
+                  "HotDesert"
+                ]
+              }
+            }
+          ],
+          "description": "Crossing hot deserts."
+        },
+        {
+          "id": "bactrian_camel",
+          "name": "Bactrian camel",
+          "needs": {
+            "biomes_any": [
+              "ColdDesert",
+              "Grassland"
+            ],
+            "resources_any": [
+              "wild_camels"
+            ]
+          },
+          "effects": [
+            {
+              "kind": "move_cost_land",
+              "value": 700,
+              "where": {
+                "biomes": [
+                  "ColdDesert"
+                ]
+              }
+            }
+          ],
+          "description": "Crossing cold deserts."
+        }
+      ],
+      "description": "Animals that carry loads where carts cannot go."
+    },
+    {
+      "id": "pastoral_nomadism",
+      "name": "Pastoral nomadism",
+      "category": "agriculture",
+      "earliest_bce": 3000,
+      "requires": [
+        "small_livestock"
+      ],
+      "requires_any": [
+        "horse_domestication",
+        "pack_animals"
+      ],
+      "needs": {
+        "biomes_any": [
+          "Grassland",
+          "ColdDesert",
+          "HotDesert",
+          "Savanna"
+        ]
+      },
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "nomadism"
+        },
+        {
+          "kind": "herd_yield",
+          "value": 1300,
+          "where": {
+            "biomes": [
+              "Grassland",
+              "ColdDesert",
+              "HotDesert",
+              "Savanna"
+            ]
+          }
+        },
+        {
+          "kind": "attack",
+          "value": 1100
+        },
+        {
+          "kind": "mobility",
+          "value": 1300
+        }
+      ],
+      "description": "Whole societies moving with their herds; formidable raiders of settled lands."
+    },
+    {
+      "id": "fallowing",
+      "name": "Fallowing and crop rotation",
+      "category": "agriculture",
+      "earliest_bce": 6000,
+      "requires": [
+        "cereal_cultivation"
+      ],
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 600
+      },
+      "effects": [
+        {
+          "kind": "soil_exhaustion",
+          "value": 700
+        }
+      ],
+      "description": "Resting fields lets soils recover."
+    },
+    {
+      "id": "manuring",
+      "name": "Manuring",
+      "category": "agriculture",
+      "earliest_bce": 6000,
+      "requires": [
+        "cereal_cultivation",
+        "small_livestock"
+      ],
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 500
+      },
+      "effects": [
+        {
+          "kind": "soil_exhaustion",
+          "value": 800
+        },
+        {
+          "kind": "food_yield",
+          "value": 1050
+        }
+      ],
+      "description": "Returning dung to the fields."
+    },
+    {
+      "id": "flood_recession_farming",
+      "name": "Flood-recession farming",
+      "category": "agriculture",
+      "earliest_bce": 6000,
+      "requires": [
+        "cereal_cultivation"
+      ],
+      "needs": {
+        "water_any": [
+          "river"
+        ]
+      },
+      "invention": 120,
+      "diffusion": 500,
+      "start": {
+        "share": 400,
+        "where": {
+          "water": [
+            "river"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "flood_farming",
+          "value": 500,
+          "where": {
+            "water": [
+              "river"
+            ]
+          }
+        },
+        {
+          "kind": "farmable",
+          "value": 900,
+          "where": {
+            "soils": [
+              "Alluvial"
+            ]
+          }
+        }
+      ],
+      "description": "Sowing in the wet silt left behind by river floods."
+    },
+    {
+      "id": "canal_irrigation",
+      "name": "Canal irrigation",
+      "category": "agriculture",
+      "earliest_bce": 6000,
+      "requires": [
+        "flood_recession_farming"
+      ],
+      "requires_any": [
+        "temple_economy",
+        "corvee_labor",
+        "ranked_society"
+      ],
+      "needs": {
+        "water_any": [
+          "river",
+          "lake"
+        ]
+      },
+      "invention": 250,
+      "diffusion": 400,
+      "start": {
+        "share": 150,
+        "where": {
+          "biomes": [
+            "HotDesert",
+            "Savanna",
+            "Grassland",
+            "MediterraneanShrubland"
+          ],
+          "water": [
+            "river"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "irrigation_range",
+          "value": 2
+        },
+        {
+          "kind": "drought_resilience",
+          "value": 700
+        },
+        {
+          "kind": "food_yield",
+          "value": 1300,
+          "where": {
+            "biomes": [
+              "HotDesert",
+              "ColdDesert",
+              "Savanna",
+              "Grassland",
+              "MediterraneanShrubland"
+            ]
+          }
+        },
+        {
+          "kind": "salinization",
+          "value": 50
+        }
+      ],
+      "description": "Channels carrying river water to the fields: the engine of Mesopotamia and Egypt, at the cost of slowly salting the soil."
+    },
+    {
+      "id": "terracing",
+      "name": "Terracing",
+      "category": "agriculture",
+      "earliest_bce": 3000,
+      "requires": [
+        "stone_masonry"
+      ],
+      "needs": {
+        "landforms_any": [
+          "Hills",
+          "Mountains"
+        ]
+      },
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "farmable",
+          "value": 700,
+          "where": {
+            "landforms": [
+              "Hills"
+            ]
+          }
+        },
+        {
+          "kind": "farmable",
+          "value": 400,
+          "where": {
+            "landforms": [
+              "Mountains"
+            ]
+          }
+        },
+        {
+          "kind": "soil_exhaustion",
+          "value": 800,
+          "where": {
+            "landforms": [
+              "Hills",
+              "Mountains"
+            ]
+          }
+        }
+      ],
+      "description": "Stepped fields that make slopes farmable and stop erosion."
+    },
+    {
+      "id": "granaries",
+      "name": "Granaries and storage",
+      "category": "agriculture",
+      "earliest_bce": 9000,
+      "requires": [
+        "cereal_cultivation"
+      ],
+      "requires_any": [
+        "pottery",
+        "mudbrick"
+      ],
+      "invention": 100,
+      "diffusion": 500,
+      "start": {
+        "share": 800
+      },
+      "effects": [
+        {
+          "kind": "food_storage",
+          "value": 6
+        }
+      ],
+      "description": "Storing surplus against bad years: droughts, floods, volcanic winters."
+    },
+    {
+      "id": "fishing_nets",
+      "name": "Fishing nets and weirs",
+      "category": "water",
+      "earliest_bce": 8000,
+      "requires": [
+        "cordage"
+      ],
+      "needs": {
+        "water_any": [
+          "river",
+          "lake",
+          "coast"
+        ]
+      },
+      "invention": 80,
+      "diffusion": 500,
+      "start": {
+        "share": 900,
+        "where": {
+          "water": [
+            "river",
+            "lake",
+            "coast"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "fishing"
+        },
+        {
+          "kind": "fish_yield",
+          "value": 1000
+        }
+      ],
+      "description": "Food from rivers, lakes and coasts."
+    },
+    {
+      "id": "wells",
+      "name": "Wells",
+      "category": "water",
+      "earliest_bce": 8000,
+      "requires": [
+        "villages"
+      ],
+      "invention": 120,
+      "diffusion": 500,
+      "start": {
+        "share": 600
+      },
+      "effects": [
+        {
+          "kind": "drought_resilience",
+          "value": 200
+        },
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "settle_away_from_water"
+        }
+      ],
+      "description": "Drinking water where there is no river."
+    },
+    {
+      "id": "cisterns",
+      "name": "Cisterns and reservoirs",
+      "category": "water",
+      "earliest_bce": 4000,
+      "requires": [
+        "lime_plaster"
+      ],
+      "requires_any": [
+        "stone_masonry",
+        "fired_brick"
+      ],
+      "invention": 200,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "drought_resilience",
+          "value": 300
+        },
+        {
+          "kind": "max_city_size",
+          "value": 1100,
+          "where": {
+            "biomes": [
+              "HotDesert",
+              "ColdDesert",
+              "Savanna",
+              "Grassland",
+              "MediterraneanShrubland"
+            ]
+          }
+        }
+      ],
+      "description": "Storing rain through the dry season."
+    },
+    {
+      "id": "drainage",
+      "name": "Drainage and sanitation",
+      "category": "water",
+      "earliest_bce": 2600,
+      "requires": [
+        "fired_brick"
+      ],
+      "invention": 300,
+      "diffusion": 300,
+      "effects": [
+        {
+          "kind": "disease",
+          "value": 700
+        },
+        {
+          "kind": "max_city_size",
+          "value": 1300
+        }
+      ],
+      "description": "Covered drains and latrines (as at Mohenjo-daro): fewer epidemics in dense cities."
+    },
+    {
+      "id": "salt_production",
+      "name": "Salt production",
+      "category": "water",
+      "earliest_bce": 6000,
+      "requires": [
+        "pottery"
+      ],
+      "needs": {
+        "resources_any": [
+          "salt"
+        ]
+      },
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 400,
+        "where": {
+          "water": [
+            "coast"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "preservation",
+          "value": 300
+        },
+        {
+          "kind": "food_storage",
+          "value": 2
+        },
+        {
+          "kind": "trade_goods",
+          "value": 60
+        }
+      ],
+      "description": "Evaporating brine: preserving food and a prized trade good."
+    },
+    {
+      "id": "pottery",
+      "name": "Pottery",
+      "category": "crafts",
+      "earliest_bce": 7000,
+      "requires": [
+        "fire"
+      ],
+      "needs": {
+        "resources_any": [
+          "clay"
+        ]
+      },
+      "invention": 80,
+      "diffusion": 500,
+      "start": {
+        "share": 950
+      },
+      "effects": [
+        {
+          "kind": "food_storage",
+          "value": 1
+        },
+        {
+          "kind": "preservation",
+          "value": 100
+        }
+      ],
+      "description": "Fired clay vessels for cooking and storage."
+    },
+    {
+      "id": "weaving",
+      "name": "Weaving and the loom",
+      "category": "crafts",
+      "earliest_bce": 7000,
+      "requires": [
+        "cordage"
+      ],
+      "invention": 100,
+      "diffusion": 500,
+      "start": {
+        "share": 850
+      },
+      "effects": [
+        {
+          "kind": "craft_output",
+          "value": 1100
+        },
+        {
+          "kind": "trade_goods",
+          "value": 50
+        }
+      ],
+      "description": "Cloth from flax, cotton or wool."
+    },
+    {
+      "id": "mudbrick",
+      "name": "Mudbrick",
+      "category": "crafts",
+      "earliest_bce": 8000,
+      "requires": [
+        "villages"
+      ],
+      "needs": {
+        "resources_any": [
+          "clay"
+        ]
+      },
+      "invention": 80,
+      "diffusion": 500,
+      "start": {
+        "share": 800,
+        "where": {
+          "biomes": [
+            "HotDesert",
+            "ColdDesert",
+            "Savanna",
+            "Grassland",
+            "MediterraneanShrubland",
+            "Wetland"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "max_city_size",
+          "value": 1200
+        },
+        {
+          "kind": "building_durability",
+          "value": 1100
+        }
+      ],
+      "description": "Sun-dried bricks: permanent houses where timber is scarce."
+    },
+    {
+      "id": "lime_plaster",
+      "name": "Lime plaster",
+      "category": "crafts",
+      "earliest_bce": 7000,
+      "requires": [
+        "fire"
+      ],
+      "needs": {
+        "resources_any": [
+          "stone"
+        ]
+      },
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 400
+      },
+      "effects": [
+        {
+          "kind": "building_durability",
+          "value": 1200
+        }
+      ],
+      "description": "Burnt lime for floors, walls and waterproofing."
+    },
+    {
+      "id": "carpentry",
+      "name": "Carpentry",
+      "category": "crafts",
+      "earliest_bce": 7000,
+      "requires": [
+        "stone_tools"
+      ],
+      "needs": {
+        "resources_any": [
+          "timber"
+        ]
+      },
+      "invention": 80,
+      "diffusion": 500,
+      "start": {
+        "share": 800,
+        "where": {
+          "biomes": [
+            "TemperateForest",
+            "TemperateRainforest",
+            "BorealForest",
+            "TropicalSeasonalForest",
+            "TropicalRainforest"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "construction",
+          "value": 1100
+        }
+      ],
+      "description": "Working timber into houses, boats and tools."
+    },
+    {
+      "id": "stone_masonry",
+      "name": "Stone masonry",
+      "category": "crafts",
+      "earliest_bce": 9500,
+      "requires": [
+        "stone_tools"
+      ],
+      "needs": {
+        "resources_any": [
+          "stone"
+        ]
+      },
+      "invention": 200,
+      "diffusion": 500,
+      "start": {
+        "share": 150,
+        "where": {
+          "landforms": [
+            "Hills",
+            "Mountains"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "building_durability",
+          "value": 1500
+        },
+        {
+          "kind": "construction",
+          "value": 1100
+        }
+      ],
+      "description": "Dressed stone for walls, temples and terraces."
+    },
+    {
+      "id": "potters_wheel",
+      "name": "Potter's wheel",
+      "category": "crafts",
+      "earliest_bce": 4500,
+      "requires": [
+        "pottery"
+      ],
+      "invention": 250,
+      "diffusion": 600,
+      "start": {
+        "share": 30
+      },
+      "effects": [
+        {
+          "kind": "craft_output",
+          "value": 1300
+        },
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "craft_specialists"
+        }
+      ],
+      "description": "Fast, standardized pottery made by full-time specialists."
+    },
+    {
+      "id": "fired_brick",
+      "name": "Fired brick",
+      "category": "crafts",
+      "earliest_bce": 3500,
+      "requires": [
+        "mudbrick",
+        "pottery"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "building_durability",
+          "value": 1800
+        },
+        {
+          "kind": "max_city_size",
+          "value": 1200
+        },
+        {
+          "kind": "deforestation",
+          "value": 200
+        }
+      ],
+      "description": "Kiln-fired bricks that survive floods; they burn a lot of wood."
+    },
+    {
+      "id": "native_copper",
+      "name": "Native copper working",
+      "category": "metallurgy",
+      "earliest_bce": 7500,
+      "requires": [
+        "stone_tools"
+      ],
+      "needs": {
+        "resources_any": [
+          "copper"
+        ]
+      },
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 300
+      },
+      "effects": [
+        {
+          "kind": "trade_goods",
+          "value": 50
+        },
+        {
+          "kind": "stability",
+          "value": 10
+        }
+      ],
+      "description": "Hammering and annealing native copper into ornaments and awls."
+    },
+    {
+      "id": "precious_metals",
+      "name": "Gold and silver working",
+      "category": "metallurgy",
+      "earliest_bce": 4500,
+      "requires": [
+        "native_copper"
+      ],
+      "needs": {
+        "resources_any": [
+          "gold",
+          "silver"
+        ]
+      },
+      "invention": 200,
+      "diffusion": 500,
+      "start": {
+        "share": 50
+      },
+      "effects": [
+        {
+          "kind": "trade_goods",
+          "value": 150
+        },
+        {
+          "kind": "stability",
+          "value": 20
+        }
+      ],
+      "description": "Prestige goods for elites (as in the Varna graves)."
+    },
+    {
+      "id": "copper_smelting",
+      "name": "Copper smelting",
+      "category": "metallurgy",
+      "earliest_bce": 5000,
+      "requires": [
+        "native_copper",
+        "pottery"
+      ],
+      "needs": {
+        "resources_all": [
+          "copper",
+          "timber"
+        ]
+      },
+      "invention": 250,
+      "diffusion": 500,
+      "start": {
+        "share": 100
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "metal_tools"
+        },
+        {
+          "kind": "craft_output",
+          "value": 1150
+        },
+        {
+          "kind": "construction",
+          "value": 1100
+        },
+        {
+          "kind": "deforestation",
+          "value": 300
+        }
+      ],
+      "description": "Extracting copper from ore in charcoal-fired furnaces."
+    },
+    {
+      "id": "metal_casting",
+      "name": "Metal casting",
+      "category": "metallurgy",
+      "earliest_bce": 4000,
+      "requires": [
+        "copper_smelting"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "craft_output",
+          "value": 1100
+        }
+      ],
+      "description": "Pouring molten metal into open and closed moulds; lead and copper."
+    },
+    {
+      "id": "lost_wax_casting",
+      "name": "Lost-wax casting",
+      "category": "metallurgy",
+      "earliest_bce": 3700,
+      "requires": [
+        "metal_casting"
+      ],
+      "invention": 350,
+      "diffusion": 400,
+      "effects": [
+        {
+          "kind": "trade_goods",
+          "value": 100
+        }
+      ],
+      "description": "Complex metal objects cast from wax models."
+    },
+    {
+      "id": "arsenical_bronze",
+      "name": "Arsenical bronze",
+      "category": "metallurgy",
+      "earliest_bce": 3500,
+      "requires": [
+        "copper_smelting"
+      ],
+      "needs": {
+        "resources_any": [
+          "arsenic_ores"
+        ]
+      },
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "attack",
+          "value": 1100
+        },
+        {
+          "kind": "craft_output",
+          "value": 1100
+        }
+      ],
+      "description": "Copper hardened with arsenic: the first bronze."
+    },
+    {
+      "id": "tin_bronze",
+      "name": "Tin bronze",
+      "category": "metallurgy",
+      "earliest_bce": 3000,
+      "requires": [
+        "copper_smelting",
+        "metal_casting"
+      ],
+      "needs": {
+        "resources_any": [
+          "tin"
+        ]
+      },
+      "invention": 400,
+      "diffusion": 400,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "bronze"
+        },
+        {
+          "kind": "craft_output",
+          "value": 1200
+        },
+        {
+          "kind": "construction",
+          "value": 1100
+        },
+        {
+          "kind": "attack",
+          "value": 1150
+        },
+        {
+          "kind": "defense",
+          "value": 1100
+        }
+      ],
+      "description": "Copper with tin: the Bronze Age. Tin is rare, so most cities need it by trade."
+    },
+    {
+      "id": "faience_glass",
+      "name": "Faience and glass",
+      "category": "crafts",
+      "earliest_bce": 4500,
+      "requires": [
+        "pottery",
+        "lime_plaster"
+      ],
+      "invention": 300,
+      "diffusion": 400,
+      "effects": [
+        {
+          "kind": "trade_goods",
+          "value": 120
+        }
+      ],
+      "description": "Glazed faience, later true glass: luxury trade goods."
+    },
+    {
+      "id": "dugout_canoe",
+      "name": "Dugout canoe",
+      "category": "transport",
+      "earliest_bce": 8000,
+      "requires": [
+        "carpentry"
+      ],
+      "needs": {
+        "water_any": [
+          "river",
+          "lake",
+          "coast"
+        ]
+      },
+      "invention": 80,
+      "diffusion": 500,
+      "start": {
+        "share": 800,
+        "where": {
+          "water": [
+            "river",
+            "lake",
+            "coast"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "move_cost_river",
+          "value": 600
+        },
+        {
+          "kind": "fish_yield",
+          "value": 1100
+        }
+      ],
+      "description": "Boats from hollowed logs."
+    },
+    {
+      "id": "sail",
+      "name": "Sail",
+      "category": "transport",
+      "earliest_bce": 5500,
+      "requires": [
+        "dugout_canoe",
+        "weaving"
+      ],
+      "needs": {
+        "water_any": [
+          "coast",
+          "river"
+        ]
+      },
+      "invention": 250,
+      "diffusion": 500,
+      "start": {
+        "share": 30,
+        "where": {
+          "water": [
+            "river",
+            "coast"
+          ]
+        }
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "coastal_sailing"
+        },
+        {
+          "kind": "move_cost_sea",
+          "value": 600
+        },
+        {
+          "kind": "move_cost_river",
+          "value": 800
+        },
+        {
+          "kind": "trade_range",
+          "value": 1500
+        }
+      ],
+      "description": "Harnessing the wind: upstream on the Nile, along the coasts."
+    },
+    {
+      "id": "planked_ships",
+      "name": "Planked ships",
+      "category": "transport",
+      "earliest_bce": 3000,
+      "requires": [
+        "sail",
+        "copper_smelting"
+      ],
+      "needs": {
+        "water_any": [
+          "coast"
+        ]
+      },
+      "invention": 350,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "open_sea"
+        },
+        {
+          "kind": "move_cost_sea",
+          "value": 500
+        },
+        {
+          "kind": "trade_range",
+          "value": 1500
+        }
+      ],
+      "description": "Seagoing ships for open water and bulk cargo."
+    },
+    {
+      "id": "wheel_cart",
+      "name": "Wheel and cart",
+      "category": "transport",
+      "earliest_bce": 3500,
+      "requires": [
+        "cattle",
+        "carpentry"
+      ],
+      "invention": 300,
+      "diffusion": 600,
+      "effects": [
+        {
+          "kind": "move_cost_land",
+          "value": 750,
+          "where": {
+            "landforms": [
+              "Plains"
+            ]
+          }
+        },
+        {
+          "kind": "trade_range",
+          "value": 1200
+        },
+        {
+          "kind": "construction",
+          "value": 1100
+        }
+      ],
+      "description": "Ox-drawn carts on open ground."
+    },
+    {
+      "id": "spoked_wheel",
+      "name": "Spoked wheel",
+      "category": "transport",
+      "earliest_bce": 2000,
+      "requires": [
+        "wheel_cart",
+        "copper_smelting"
+      ],
+      "invention": 350,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "light_vehicles"
+        },
+        {
+          "kind": "move_cost_land",
+          "value": 900,
+          "where": {
+            "landforms": [
+              "Plains"
+            ]
+          }
+        }
+      ],
+      "description": "Light, fast wheels: chariots and fast carts."
+    },
+    {
+      "id": "roads",
+      "name": "Roads and causeways",
+      "category": "transport",
+      "earliest_bce": 3000,
+      "requires": [
+        "corvee_labor"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "move_cost_land",
+          "value": 800
+        },
+        {
+          "kind": "admin_range",
+          "value": 1200
+        }
+      ],
+      "description": "Built routes binding a territory together."
+    },
+    {
+      "id": "trade_networks",
+      "name": "Trade networks",
+      "category": "trade",
+      "earliest_bce": 7000,
+      "requires": [
+        "villages"
+      ],
+      "invention": 80,
+      "diffusion": 800,
+      "start": {
+        "share": 700
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "trade"
+        },
+        {
+          "kind": "diffusion",
+          "value": 1200
+        }
+      ],
+      "description": "Regular exchange between settlements: how goods and ideas spread."
+    },
+    {
+      "id": "seals",
+      "name": "Seals and sealing",
+      "category": "trade",
+      "earliest_bce": 6000,
+      "requires": [
+        "pottery"
+      ],
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 300
+      },
+      "effects": [
+        {
+          "kind": "trade_efficiency",
+          "value": 1100
+        },
+        {
+          "kind": "tax_efficiency",
+          "value": 1100
+        }
+      ],
+      "description": "Marking ownership of goods and stores."
+    },
+    {
+      "id": "weights_measures",
+      "name": "Weights and measures",
+      "category": "trade",
+      "earliest_bce": 3000,
+      "requires": [
+        "trade_networks",
+        "counting_tokens"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "trade_efficiency",
+          "value": 1200
+        },
+        {
+          "kind": "tax_efficiency",
+          "value": 1100
+        }
+      ],
+      "description": "Standard units for fair exchange and taxation."
+    },
+    {
+      "id": "markets",
+      "name": "Markets",
+      "category": "trade",
+      "earliest_bce": 3000,
+      "requires": [
+        "weights_measures"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "trade_efficiency",
+          "value": 1200
+        },
+        {
+          "kind": "craft_output",
+          "value": 1100
+        }
+      ],
+      "description": "Regular places of exchange; specialists can live by trade."
+    },
+    {
+      "id": "commodity_money",
+      "name": "Commodity money",
+      "category": "trade",
+      "earliest_bce": 2500,
+      "requires": [
+        "precious_metals",
+        "weights_measures"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "money"
+        },
+        {
+          "kind": "trade_efficiency",
+          "value": 1250
+        },
+        {
+          "kind": "tax_efficiency",
+          "value": 1200
+        }
+      ],
+      "description": "Silver by weight as a universal measure of value."
+    },
+    {
+      "id": "counting_tokens",
+      "name": "Counting tokens",
+      "category": "knowledge",
+      "earliest_bce": 8000,
+      "requires": [
+        "villages"
+      ],
+      "invention": 100,
+      "diffusion": 500,
+      "start": {
+        "share": 500
+      },
+      "effects": [
+        {
+          "kind": "tax_efficiency",
+          "value": 1050
+        }
+      ],
+      "description": "Clay tokens standing for goods: the root of accounting."
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar and astronomy",
+      "category": "knowledge",
+      "earliest_bce": 4000,
+      "requires": [
+        "counting_tokens"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "season_prediction",
+          "value": 300
+        },
+        {
+          "kind": "food_yield",
+          "value": 1050
+        },
+        {
+          "kind": "stability",
+          "value": 20
+        }
+      ],
+      "description": "Predicting seasons and floods for planting."
+    },
+    {
+      "id": "proto_writing",
+      "name": "Proto-writing",
+      "category": "knowledge",
+      "earliest_bce": 3500,
+      "requires": [
+        "counting_tokens",
+        "seals"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "tax_efficiency",
+          "value": 1150
+        },
+        {
+          "kind": "admin_range",
+          "value": 1100
+        }
+      ],
+      "description": "Numerical tablets and signs for administration."
+    },
+    {
+      "id": "writing",
+      "name": "Writing",
+      "category": "knowledge",
+      "earliest_bce": 3200,
+      "requires": [
+        "proto_writing",
+        "temple_economy"
+      ],
+      "invention": 500,
+      "diffusion": 300,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "records"
+        },
+        {
+          "kind": "admin_range",
+          "value": 1300
+        },
+        {
+          "kind": "tech_retention",
+          "value": 600
+        },
+        {
+          "kind": "research",
+          "value": 1200
+        }
+      ],
+      "description": "Full writing systems: records, laws, and knowledge that outlives its holders."
+    },
+    {
+      "id": "mathematics",
+      "name": "Mathematics",
+      "category": "knowledge",
+      "earliest_bce": 2500,
+      "requires": [
+        "writing"
+      ],
+      "invention": 350,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "construction",
+          "value": 1150
+        },
+        {
+          "kind": "research",
+          "value": 1100
+        },
+        {
+          "kind": "tax_efficiency",
+          "value": 1100
+        }
+      ],
+      "description": "Positional arithmetic, tables, geometry."
+    },
+    {
+      "id": "surveying",
+      "name": "Surveying",
+      "category": "knowledge",
+      "earliest_bce": 2500,
+      "requires": [
+        "mathematics"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "irrigation_range",
+          "value": 1
+        },
+        {
+          "kind": "stability",
+          "value": 20
+        },
+        {
+          "kind": "construction",
+          "value": 1100
+        }
+      ],
+      "description": "Measuring land: re-allotting fields after floods, laying out canals."
+    },
+    {
+      "id": "scribal_schools",
+      "name": "Scribal schools",
+      "category": "knowledge",
+      "earliest_bce": 2500,
+      "requires": [
+        "writing"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "tech_retention",
+          "value": 300
+        },
+        {
+          "kind": "research",
+          "value": 1150
+        },
+        {
+          "kind": "diffusion",
+          "value": 1150
+        }
+      ],
+      "description": "Training scribes: knowledge passed on systematically."
+    },
+    {
+      "id": "herbal_medicine",
+      "name": "Herbal medicine",
+      "category": "knowledge",
+      "earliest_bce": 9000,
+      "requires": [
+        "foraging"
+      ],
+      "invention": 100,
+      "diffusion": 500,
+      "start": {
+        "share": 600
+      },
+      "effects": [
+        {
+          "kind": "mortality",
+          "value": 950
+        }
+      ],
+      "description": "Remedies from plants."
+    },
+    {
+      "id": "surgical_medicine",
+      "name": "Surgical medicine",
+      "category": "knowledge",
+      "earliest_bce": 2500,
+      "requires": [
+        "writing",
+        "copper_smelting"
+      ],
+      "invention": 350,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "mortality",
+          "value": 950
+        }
+      ],
+      "description": "Recorded medical knowledge and metal instruments."
+    },
+    {
+      "id": "ranked_society",
+      "name": "Ranked society",
+      "category": "society",
+      "earliest_bce": 6000,
+      "requires": [
+        "granaries"
+      ],
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 400
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "chiefdom"
+        },
+        {
+          "kind": "labor_mobilization",
+          "value": 30
+        },
+        {
+          "kind": "admin_range",
+          "value": 1100
+        },
+        {
+          "kind": "stability",
+          "value": -20
+        }
+      ],
+      "description": "Hereditary elites controlling surplus; chiefdoms of several villages."
+    },
+    {
+      "id": "organized_religion",
+      "name": "Organized religion",
+      "category": "society",
+      "earliest_bce": 6000,
+      "requires": [
+        "ranked_society",
+        "ancestor_cults"
+      ],
+      "invention": 150,
+      "diffusion": 500,
+      "start": {
+        "share": 300
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "temples"
+        },
+        {
+          "kind": "stability",
+          "value": 50
+        }
+      ],
+      "description": "Priests, temples and shared gods."
+    },
+    {
+      "id": "temple_economy",
+      "name": "Temple economy",
+      "category": "society",
+      "earliest_bce": 5000,
+      "requires": [
+        "organized_religion",
+        "granaries"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "start": {
+        "share": 80
+      },
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "redistribution"
+        },
+        {
+          "kind": "food_storage",
+          "value": 3
+        },
+        {
+          "kind": "drought_resilience",
+          "value": 150
+        },
+        {
+          "kind": "labor_mobilization",
+          "value": 50
+        }
+      ],
+      "description": "Temples pooling and redistributing surplus, feeding specialists and the hungry."
+    },
+    {
+      "id": "corvee_labor",
+      "name": "Corvée labour",
+      "category": "society",
+      "earliest_bce": 4000,
+      "requires": [
+        "temple_economy"
+      ],
+      "requires_any": [
+        "kingship",
+        "ranked_society"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "labor_mobilization",
+          "value": 100
+        },
+        {
+          "kind": "stability",
+          "value": -30
+        }
+      ],
+      "description": "Compulsory labour on canals, walls and monuments."
+    },
+    {
+      "id": "taxation",
+      "name": "Taxation and tribute",
+      "category": "society",
+      "earliest_bce": 3500,
+      "requires": [
+        "counting_tokens",
+        "ranked_society"
+      ],
+      "invention": 250,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "taxes"
+        },
+        {
+          "kind": "tax_efficiency",
+          "value": 1300
+        }
+      ],
+      "description": "Regular levies on produce and subject cities."
+    },
+    {
+      "id": "kingship",
+      "name": "Kingship",
+      "category": "society",
+      "earliest_bce": 3000,
+      "requires": [
+        "ranked_society"
+      ],
+      "requires_any": [
+        "city_walls",
+        "palisades"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "kingdoms"
+        },
+        {
+          "kind": "admin_range",
+          "value": 1300
+        },
+        {
+          "kind": "stability",
+          "value": 50
+        }
+      ],
+      "description": "Hereditary rulers above the temple and the elders."
+    },
+    {
+      "id": "bureaucracy",
+      "name": "Bureaucracy",
+      "category": "society",
+      "earliest_bce": 2800,
+      "requires": [
+        "writing",
+        "kingship"
+      ],
+      "invention": 350,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "admin_range",
+          "value": 1500
+        },
+        {
+          "kind": "tax_efficiency",
+          "value": 1200
+        }
+      ],
+      "description": "Officials and archives governing large territories."
+    },
+    {
+      "id": "law_codes",
+      "name": "Law codes",
+      "category": "society",
+      "earliest_bce": 2100,
+      "requires": [
+        "writing",
+        "kingship"
+      ],
+      "invention": 350,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "stability",
+          "value": 100
+        }
+      ],
+      "description": "Written laws (Ur-Nammu, Hammurabi): predictable justice."
+    },
+    {
+      "id": "bonded_labor",
+      "name": "Bonded labour",
+      "category": "society",
+      "earliest_bce": 3000,
+      "requires": [
+        "ranked_society"
+      ],
+      "requires_any": [
+        "organized_infantry",
+        "palisades"
+      ],
+      "invention": 200,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "labor_mobilization",
+          "value": 80
+        },
+        {
+          "kind": "craft_output",
+          "value": 1050
+        },
+        {
+          "kind": "stability",
+          "value": -50
+        }
+      ],
+      "description": "Debt bondage and enslaved war captives: a historical reality that adds labour at a cost in unrest."
+    },
+    {
+      "id": "diplomacy",
+      "name": "Diplomacy and treaties",
+      "category": "society",
+      "earliest_bce": 2500,
+      "requires": [
+        "writing",
+        "kingship"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "treaties"
+        },
+        {
+          "kind": "stability",
+          "value": 30
+        }
+      ],
+      "description": "Envoys, alliances, vassal treaties."
+    },
+    {
+      "id": "monumental_architecture",
+      "name": "Monumental architecture",
+      "category": "society",
+      "earliest_bce": 3500,
+      "requires": [
+        "corvee_labor"
+      ],
+      "requires_any": [
+        "stone_masonry",
+        "fired_brick",
+        "mudbrick"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "monuments"
+        },
+        {
+          "kind": "stability",
+          "value": 60
+        },
+        {
+          "kind": "max_city_size",
+          "value": 1050
+        }
+      ],
+      "description": "Temples, ziggurats and pyramids: prestige that draws people in."
+    },
+    {
+      "id": "sling_mace",
+      "name": "Sling and mace",
+      "category": "warfare",
+      "earliest_bce": 8000,
+      "requires": [
+        "stone_tools",
+        "cordage"
+      ],
+      "invention": 80,
+      "diffusion": 500,
+      "start": {
+        "share": 900
+      },
+      "effects": [
+        {
+          "kind": "attack",
+          "value": 1050
+        }
+      ],
+      "description": "Weapons of early organized violence."
+    },
+    {
+      "id": "palisades",
+      "name": "Palisades and ditches",
+      "category": "warfare",
+      "earliest_bce": 7000,
+      "requires": [
+        "carpentry"
+      ],
+      "invention": 100,
+      "diffusion": 500,
+      "start": {
+        "share": 600
+      },
+      "effects": [
+        {
+          "kind": "fortification",
+          "value": 200
+        }
+      ],
+      "description": "Wooden walls around villages."
+    },
+    {
+      "id": "city_walls",
+      "name": "City walls",
+      "category": "warfare",
+      "earliest_bce": 7000,
+      "requires": [
+        "villages"
+      ],
+      "requires_any": [
+        "mudbrick",
+        "stone_masonry"
+      ],
+      "invention": 200,
+      "diffusion": 500,
+      "start": {
+        "share": 80
+      },
+      "effects": [
+        {
+          "kind": "fortification",
+          "value": 500
+        }
+      ],
+      "description": "Massive walls (Jericho, Uruk): a city that must be besieged."
+    },
+    {
+      "id": "organized_infantry",
+      "name": "Organized infantry",
+      "category": "warfare",
+      "earliest_bce": 2500,
+      "requires": [
+        "kingship"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "attack",
+          "value": 1200
+        },
+        {
+          "kind": "defense",
+          "value": 1200
+        }
+      ],
+      "description": "Drilled spear formations."
+    },
+    {
+      "id": "bronze_weapons",
+      "name": "Bronze weapons",
+      "category": "warfare",
+      "earliest_bce": 3000,
+      "requires": [],
+      "requires_any": [
+        "tin_bronze",
+        "arsenical_bronze"
+      ],
+      "invention": 200,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "attack",
+          "value": 1250
+        }
+      ],
+      "description": "Metal spearheads, axes and daggers."
+    },
+    {
+      "id": "bronze_armor",
+      "name": "Bronze armour",
+      "category": "warfare",
+      "earliest_bce": 2500,
+      "requires": [
+        "bronze_weapons",
+        "tin_bronze"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "defense",
+          "value": 1300
+        }
+      ],
+      "description": "Helmets and body armour."
+    },
+    {
+      "id": "composite_bow",
+      "name": "Composite bow",
+      "category": "warfare",
+      "earliest_bce": 2200,
+      "requires": [
+        "bow",
+        "small_livestock",
+        "carpentry"
+      ],
+      "invention": 350,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "attack",
+          "value": 1150
+        }
+      ],
+      "description": "Wood, horn and sinew: a far stronger bow."
+    },
+    {
+      "id": "chariot",
+      "name": "Chariot",
+      "category": "warfare",
+      "earliest_bce": 2000,
+      "requires": [
+        "horse_domestication",
+        "spoked_wheel"
+      ],
+      "requires_any": [
+        "tin_bronze",
+        "arsenical_bronze"
+      ],
+      "invention": 400,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "unlock",
+          "value": 1,
+          "feature": "chariots"
+        },
+        {
+          "kind": "attack",
+          "value": 1300,
+          "where": {
+            "landforms": [
+              "Plains"
+            ]
+          }
+        },
+        {
+          "kind": "mobility",
+          "value": 1500
+        }
+      ],
+      "description": "Elite mobile warfare on open ground."
+    },
+    {
+      "id": "siege_warfare",
+      "name": "Siege warfare",
+      "category": "warfare",
+      "earliest_bce": 2500,
+      "requires": [
+        "city_walls",
+        "organized_infantry"
+      ],
+      "invention": 300,
+      "diffusion": 500,
+      "effects": [
+        {
+          "kind": "siege",
+          "value": 1500
+        }
+      ],
+      "description": "Ramps, ladders, battering rams and blockades."
+    }
+  ]
+}
