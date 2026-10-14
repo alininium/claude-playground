@@ -383,7 +383,9 @@ impl Journal {
                 .filter(|e| !e.happening.is_society())
                 .cloned()
                 .collect(),
-            ..self.clone()
+            eruptions_seen: self.eruptions_seen,
+            oscillation_episode: self.oscillation_episode,
+            volcanic_winter: self.volcanic_winter,
         }
     }
 }

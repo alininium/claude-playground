@@ -487,3 +487,18 @@ fn a_day_of_food_for_ten_thousand_people_is_cheap() {
     println!("one day of food for {people} people: {took:?}");
     assert!(took < std::time::Duration::from_millis(10), "{took:?}");
 }
+
+#[test]
+fn free_land_is_fields_plus_pasture() {
+    let mut sim = sim_on(SPRING);
+    days(&mut sim, 2);
+    let mut split = 0;
+    for c in sim.cities() {
+        let o = outlook(&mut sim, c.id);
+        if o.free_farm + o.free_pasture > 0 {
+            assert_eq!(o.free_land, o.free_farm + o.free_pasture, "{o:?}");
+            split += 1;
+        }
+    }
+    assert!(split > 0, "no city farms or herds");
+}

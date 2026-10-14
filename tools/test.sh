@@ -34,9 +34,13 @@ declare -A TARGETS=(
 # Which categories a changed path affects (core always runs).
 categories_for() {
   case "$1" in
-    src/people/* | src/economy.rs | src/tools.rs | src/caravan.rs | data/people.json \
-      | tests/people.rs | tests/decisions.rs | tests/economy.rs | tests/tools.rs \
+    # The journal's famines and technologies come from the people; who is
+    # founded where, and what they know, shapes everything the people do.
+    src/people/* | src/economy.rs | src/tools.rs | src/caravan.rs | data/people.json) \
+      echo people events ;;
+    tests/people.rs | tests/decisions.rs | tests/economy.rs | tests/tools.rs \
       | tests/life.rs | tests/status.rs | tests/caravans.rs) echo people ;;
+    src/city.rs | src/tech.rs | data/technologies.json) echo people events ;;
     src/climate/* | src/biome.rs | src/fertility.rs | src/map/*) echo people climate events ;;
     src/volcano.rs | src/journal.rs | src/events.rs) echo events ;;
     src/lib.rs | src/config.rs | src/time.rs | src/rng.rs | Cargo.toml | Cargo.lock \

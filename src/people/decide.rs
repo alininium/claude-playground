@@ -274,6 +274,8 @@ fn attach_plans(mut commands: Commands, new: Query<Entity, (With<PersonId>, With
 #[derive(Debug, Clone, Copy, Default)]
 struct Place {
     free_land: u32,
+    free_farm: u32,
+    free_pasture: u32,
     food_days: u32,
     water: bool,
 }
@@ -381,6 +383,8 @@ fn decide(
         let site = Site::of(&map, &biomes, map.index(*position));
         places[i] = Place {
             free_land: outlook.free_land,
+            free_farm: outlook.free_farm,
+            free_pasture: outlook.free_pasture,
             food_days: outlook.food_days,
             water: site.river || site.lake || site.coast,
         };
@@ -466,6 +470,17 @@ fn decide(
     }
 }
 
+/// The room a city has for a land action: fields for farming, pasture for
+/// herding (so free pasture never sends people to full fields), any land
+/// for the rest.
+fn room_for(kind: ActionKind, place: &Place) -> u32 {
+    match kind {
+        ActionKind::Farm => place.free_farm,
+        ActionKind::Herd => place.free_pasture,
+        _ => place.free_land,
+    }
+}
+
 /// One adult's waking turn: carry on, take a longer action up again in the
 /// morning, or decide.
 fn step(row: &mut Row, context: &Context) {
@@ -515,7 +530,7 @@ fn choose(row: &mut Row, context: &Context) -> ActionKind {
             && context.statuses.allows(row.status, kind)
             && (action.techs_any.is_empty()
                 || context.techs[k].iter().any(|&t| row.skills.0.knows(t)))
-            && (!action.land || place.free_land > 0 || current == kind || last == kind)
+            && (!action.land || room_for(kind, &place) > 0 || current == kind || last == kind)
             && (!action.water || place.water)
             && (!action.unpartnered || row.family.partner.is_none())
             && (!action.parents || row.family.births > 0)

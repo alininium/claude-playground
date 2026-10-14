@@ -72,9 +72,10 @@ and say so in your summary.
 These exist already with neutral defaults, so modules can be built in
 parallel:
 
-- **`economy::Outlook`** (a component on each city): `free_land`,
-  `food_days` and `tools_available`. Written by `economy` and `tools`, read
-  by `decide`, for example to choose `SettleAway` when there is no land.
+- **`economy::Outlook`** (a component on each city): `free_land` (split
+  into `free_farm` and `free_pasture`), `food_days` and `tools_available`.
+  Written by `economy` and `tools`, read by `decide`: Farm needs room on the
+  fields, Herd on pasture, and `SettleAway` no land at all.
 - **`economy::Stores`** (a component on each city): `food`, owned by
   `economy`, and `items[ItemId]`, owned by `tools`.
 - **`status::StatusCatalog`** (a resource): `allows(status, action)` and
@@ -116,6 +117,10 @@ any of them.
   u64::MAX`, and their `Person::home` is the caravan's id plus
   `caravan::TRAVELLING` (2³¹), which no city has. Never index a city
   table by `home` without a bounds check; use `caravan::is_travelling`.
+- **Leaving breaks ties to the city.** When someone leaves with a caravan,
+  a partner who stays is no longer their partner (both may pair again), and
+  any status not held for life stays with the city. Statuses never
+  follow people abroad.
 - **Everyone's stream moves.** `life` rolls survival from each person's
   own `PersonRng` daily, so tests should check behaviour (activities,
   needs), not that a stream stayed untouched.

@@ -158,7 +158,9 @@ fn a_day_of_decisions_for_10000_people() {
 const BUDGET_CREATE_SMALL: u64 = 10_000;
 const BUDGET_CREATE_LARGE: u64 = 300_000;
 const BUDGET_YEAR_SMALL: u64 = 6_000;
-const BUDGET_DAY_LARGE: u64 = 300;
+// The large map's people (16 settlements, about 3 500) brought the day from
+// 96 ms to just under 300: room for a slower machine.
+const BUDGET_DAY_LARGE: u64 = 450;
 const BUDGET_LOAD_SMALL: u64 = 300;
 /// The people's own budget is 10 ms a day; the small world's turns add a
 /// little.

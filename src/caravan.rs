@@ -56,7 +56,8 @@ use crate::fertility::Fertility;
 use crate::map::{Landform, Map, Position, Water};
 use crate::people::founding::FoundingConfig;
 use crate::people::rng::{PersonRng, mix};
-use crate::people::{ActionKind, Activity, Family, Need, Needs, Person, PersonId, Skills};
+use crate::people::status::StatusCatalog;
+use crate::people::{ActionKind, Activity, Family, Need, Needs, Person, PersonId, Skills, Status};
 use crate::rng::SimRng;
 use crate::tech::{Knowledge, TechTree};
 use crate::time::{TURNS_PER_DAY, Turn};
@@ -501,6 +502,18 @@ fn farthest_land(
 }
 
 /// The cheapest walking distance from the caravan to every tile within
+/// How many rows (and columns) around a caravan its scouts search, for rows
+/// `per_row_km` tall: `scout_km`, but always at least half again the
+/// minimum distance between cities (anything nearer home is too close to
+/// it, so a smaller window could hold nothing to find), at least 2, and at
+/// most 64, which bounds the daily search to 129 × 129 tiles.
+pub fn scout_rows(per_row_km: u64, scout_km: u32, min_city_distance_km: u32) -> usize {
+    let per_row = per_row_km.max(1);
+    let wanted = u64::from(scout_km).div_ceil(per_row);
+    let beyond_neighbors = (u64::from(min_city_distance_km) * 3 / 2).div_ceil(per_row) + 1;
+    wanted.max(beyond_neighbors).clamp(2, 64) as usize
+}
+
 /// scouting range (Dijkstra over a small square window; ties by tile
 /// index, so the result never depends on anything but the map).
 struct Scout {
@@ -519,9 +532,7 @@ impl Scout {
         let per_row =
             (u64::from(config.climate.planet_circumference_km) / 2 / u64::from(map.height()))
                 .max(1);
-        let radius = u64::from(tuning.scout_radius_km)
-            .div_ceil(per_row)
-            .clamp(2, 16) as usize;
+        let radius = scout_rows(per_row, tuning.scout_radius_km, config.min_city_distance_km);
         let (w, h) = (map.width() as usize, map.height() as usize);
         let (x, y) = (here % w, here / w);
         let (x0, y0) = (x.saturating_sub(radius), y.saturating_sub(radius));
@@ -605,8 +616,9 @@ type Leaver = (
     &'static PersonId,
     &'static mut Person,
     &'static mut Activity,
-    &'static Family,
+    &'static mut Family,
     Option<&'static mut Plan>,
+    &'static mut Status,
 );
 
 /// Sends out a caravan from every city where at least `min_adults` adults
@@ -620,6 +632,7 @@ fn depart(
     tuning: Res<CaravanConfig>,
     founding: Res<FoundingConfig>,
     mut next_caravan: ResMut<NextCaravanId>,
+    statuses: Res<StatusCatalog>,
     mut people: Query<Leaver>,
     mut cities: Query<(&CityId, &Position, &Population, &mut Stores)>,
 ) {
@@ -630,7 +643,7 @@ fn depart(
     // `decide` records it in `Plan::last` every night.
     let mut leaving: Vec<(CityId, PersonId, Entity)> = people
         .iter()
-        .filter(|(_, _, p, a, _, plan)| {
+        .filter(|(_, _, p, a, _, plan, _)| {
             plan.is_some_and(|plan| plan.last == ActionKind::SettleAway)
                 && a.until != u64::MAX
                 && !is_travelling(p.home)
@@ -659,13 +672,13 @@ fn depart(
     // Children under the adult age follow their mothers.
     let children: Vec<(CityId, PersonId, PersonId, Entity)> = people
         .iter()
-        .filter(|(_, _, p, a, f, _)| {
+        .filter(|(_, _, p, a, f, _, _)| {
             f.mother.is_some()
                 && a.until != u64::MAX
                 && !is_travelling(p.home)
                 && p.age_years(now, tpy) < adult
         })
-        .map(|(e, id, p, _, f, _)| (p.home, f.mother.unwrap(), *id, e))
+        .map(|(e, id, p, _, f, _, _)| (p.home, f.mother.unwrap(), *id, e))
         .collect();
 
     for (city, adults) in groups {
@@ -699,9 +712,42 @@ fn depart(
             progress_km: 0,
             goal: None,
         };
+        // A couple splits when only one of them leaves: both links are
+        // cleared, so each may find someone new where they live.
+        let staying: Vec<(PersonId, PersonId)> = members
+            .iter()
+            .filter_map(|&(id, e)| {
+                let partner = people.get(e).ok()?.4.partner?;
+                members
+                    .binary_search_by_key(&partner, |m| m.0)
+                    .is_err()
+                    .then_some((id, partner))
+            })
+            .collect();
+        if !staying.is_empty() {
+            let entities: Vec<(PersonId, Entity)> = {
+                let mut v: Vec<_> = people.iter().map(|(e, id, ..)| (*id, e)).collect();
+                v.sort();
+                v
+            };
+            for (leaver, partner) in staying {
+                for id in [leaver, partner] {
+                    if let Ok(i) = entities.binary_search_by_key(&id, |x| x.0)
+                        && let Ok((_, _, _, _, mut family, _, _)) = people.get_mut(entities[i].1)
+                    {
+                        family.partner = None;
+                    }
+                }
+            }
+        }
         for &(_, e) in &members {
-            let (_, _, mut person, mut activity, _, plan) = people.get_mut(e).unwrap();
+            let (_, _, mut person, mut activity, _, plan, mut status) = people.get_mut(e).unwrap();
             person.home = caravan.home();
+            // Positions stay with the city: only a status held for life
+            // goes along (a chief who leaves is no longer its chief).
+            if !statuses.status(status.0).is_some_and(|s| s.for_life) {
+                *status = Status::default();
+            }
             // The choice is spent: once settled (or back home) they decide
             // afresh instead of leaving again.
             if let Some(mut plan) = plan {
@@ -720,6 +766,27 @@ fn depart(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scouts_always_see_past_the_nearest_allowed_site() {
+        // Rows on a 40 000 km planet: 24, 64, 128 and 512 rows tall.
+        let tuning = CaravanConfig::builtin();
+        let min_km = SimConfig::default().min_city_distance_km;
+        for height in [24u64, 64, 128, 512] {
+            let per_row = 20_000 / height;
+            let rows = scout_rows(per_row, tuning.scout_radius_km, min_km);
+            let reach_km = rows as u64 * per_row;
+            assert!(
+                reach_km > u64::from(min_km),
+                "{height} rows: scouts see {reach_km} km, sites start at {min_km} km"
+            );
+            assert!((2..=64).contains(&rows));
+        }
+        // The configured range wins when it is larger.
+        assert_eq!(scout_rows(312, 1500, 800), 5);
+        // A tiny range is widened past the minimum distance.
+        assert!(scout_rows(39, 100, 800) * 39 > 800);
+    }
 
     #[test]
     fn the_builtin_tuning_parses() {

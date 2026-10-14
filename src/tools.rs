@@ -203,6 +203,11 @@ pub struct Equipment {
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
 pub struct Workshops(pub BTreeMap<CityId, Vec<u32>>);
 
+/// For each item, the technologies that let someone make it; and for each
+/// item, the items that do its main job as well (see
+/// [`ToolCatalog::stand_ins`]).
+type Lookups = (Vec<Vec<TechId>>, Vec<Vec<usize>>);
+
 /// The day's tool work, run on the midday turn: for every city in id order,
 /// its workers in id order take and wear tools, then its crafters craft.
 /// Workers away with a caravan (`Activity::until == u64::MAX`) do nothing.
@@ -222,13 +227,18 @@ pub fn daily_tools(
         &mut Equipment,
     )>,
     mut cities: Query<(&CityId, &Population, &mut Stores, &mut Outlook)>,
+    mut lookups: Local<Option<Lookups>>,
 ) {
     if turn.0 % TURNS_PER_DAY != WORK_TURN || catalog.items.is_empty() {
         return;
     }
     let day = turn.0 / TURNS_PER_DAY;
-    let makers = catalog.makers(&tree);
-    let stand_ins = catalog.stand_ins();
+    // Who can make what, and what stands in for what, only change with the
+    // catalog or the tree: worked out once, not every day.
+    if lookups.is_none() || catalog.is_changed() || tree.is_changed() {
+        *lookups = Some((catalog.makers(&tree), catalog.stand_ins()));
+    }
+    let (makers, stand_ins) = lookups.as_ref().unwrap();
     let n = catalog.items.len();
 
     let mut workers: Vec<(CityId, PersonId, ActionKind, Entity)> = people
@@ -286,19 +296,13 @@ pub fn daily_tools(
                 .collect();
             let progress = workshops.0.entry(**city).or_default();
             progress.resize(n.max(progress.len()), 0);
+            let spare = (population.count * u64::from(catalog.spare_per_mille) / 1000) as u32;
             for &(entity, labour) in &crafters {
                 let Ok((_, _, _, _, skills, _)) = people.get(entity) else {
                     continue;
                 };
-                let spare = (population.count * u64::from(catalog.spare_per_mille) / 1000) as u32;
-                let Some(i) = choose(
-                    &makers,
-                    &stand_ins,
-                    &skills.0,
-                    &wanted,
-                    spare,
-                    &stores.items,
-                ) else {
+                let Some(i) = choose(makers, stand_ins, &skills.0, &wanted, spare, &stores.items)
+                else {
                     continue;
                 };
                 progress[i] += labour;

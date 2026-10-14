@@ -219,6 +219,10 @@ pub struct Outlook {
     /// How many more people could take up food work on the city's land
     /// (0: no usable land left, which pushes people to settle away).
     pub free_land: u32,
+    /// Of that, room on fields (for farmers) and on pasture (for herders);
+    /// `decide` checks the one that fits the work.
+    pub free_farm: u32,
+    pub free_pasture: u32,
     /// Days of food in the stores per inhabitant.
     pub food_days: u32,
     /// Tools in the stores that people could take.
@@ -1137,21 +1141,24 @@ fn daily_food(
         };
         let farms = knows_any(knowledge, &state.farm_techs);
         let herds = knows_any(knowledge, &state.herd_techs);
-        let mut free = 0u32;
-        if farms {
-            free += room(Work::Farm);
-        }
-        if herds {
-            free += room(Work::Herd);
-        }
-        if !farms && !herds {
-            free = room(Work::Forage);
-        }
+        let free_farm = if farms { room(Work::Farm) } else { 0 };
+        let free_pasture = if herds { room(Work::Herd) } else { 0 };
+        let free = if farms || herds {
+            free_farm + free_pasture
+        } else {
+            room(Work::Forage)
+        };
         stores.food = larder.food_milli / 1000;
         let food_days = (stores.food / u64::from(residents[c].max(1))).min(u64::from(u32::MAX));
-        if outlook.free_land != free || outlook.food_days != food_days as u32 {
-            outlook.free_land = free;
-            outlook.food_days = food_days as u32;
+        let next = Outlook {
+            free_land: free,
+            free_farm,
+            free_pasture,
+            food_days: food_days as u32,
+            tools_available: outlook.tools_available,
+        };
+        if *outlook != next {
+            *outlook = next;
         }
     }
 

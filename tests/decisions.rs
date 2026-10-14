@@ -34,6 +34,8 @@ fn set_outlook(sim: &mut Simulation, free_land: u32, food_days: u32) {
     let mut query = world.query::<&mut Outlook>();
     for mut outlook in query.iter_mut(world) {
         outlook.free_land = free_land;
+        outlook.free_farm = free_land;
+        outlook.free_pasture = free_land;
         outlook.food_days = food_days;
     }
 }
@@ -134,6 +136,28 @@ fn farming_needs_free_land() {
         let farmers = share(&adults(&mut sim), &[ActionKind::Farm, ActionKind::Herd]);
         assert_eq!(farmers > 0, expect_farmers, "free land {land}: {farmers}‰");
     }
+}
+
+#[test]
+fn free_pasture_does_not_send_people_to_full_fields() {
+    // The fields are full but the pasture has room: the city as a whole has
+    // free land, yet nobody may take up farming, only herding.
+    let mut sim = common::sim(Fixture::Small);
+    {
+        let world = sim.world_mut();
+        let mut query = world.query::<&mut Outlook>();
+        for mut outlook in query.iter_mut(world) {
+            outlook.free_land = 1000;
+            outlook.free_farm = 0;
+            outlook.free_pasture = 1000;
+            outlook.food_days = 30;
+        }
+    }
+    set_needs(&mut sim, needs_at(0, &[(Need::Food, 1000)]));
+    sim.step();
+    let people = adults(&mut sim);
+    assert_eq!(share(&people, &[ActionKind::Farm]), 0);
+    assert!(share(&people, &[ActionKind::Herd]) > 0);
 }
 
 /// Runs `days` days and returns, for every morning decision, the adults

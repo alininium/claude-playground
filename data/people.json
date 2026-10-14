@@ -281,7 +281,7 @@
     "river_crossing": 500,
     "river_crossing_note": "Extra cost of entering a river tile (finding a ford, rafting), per mille of its width.",
     "scout_radius_km": 1500,
-    "scout_radius_km_note": "How far ahead scouts and word of mouth reach. Must exceed the minimum distance between cities, or there is nothing to find.",
+    "scout_radius_km_note": "How far ahead scouts and word of mouth reach. Widened to at least 1.5 times the minimum distance between cities (nearer sites are too close to home) and capped at 64 tiles each way.",
     "min_site_score": 300,
     "min_site_score_note": "Lowest site value (cradle score, or half the fertility of other settleable land) worth settling.",
     "distance_penalty_per_100km": 30,
