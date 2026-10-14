@@ -22,7 +22,36 @@
   "needs": {},
   "actions": {},
   "life": {},
-  "status": {},
+  "status": {
+    "notes": [
+      "Statuses in order of precedence: the first is the ordinary member, then the highest positions. A person holds one status; vacancies go to members or holders of lower statuses (not those held for life), best score first.",
+      "Positions: count (fixed) or per_mille of the city's adults, rounded. Score: sum of trait (0-255) times prefer weight per mille, plus per_year_of_age per year, plus inherited if a parent holds or held it, plus luck times a fixed per-person fortune (0-999) per mille.",
+      "esteem 0-1000: how much the status eases the Esteem need each day (esteem_relief at 1000). leaning is added to the score of an action; forbidden actions cannot be chosen."
+    ],
+    "adult_age": 15,
+    "learn_from_age": 5,
+    "review_days": 91,
+    "knowledge_days": 364,
+    "learn_days": 28,
+    "child_learning": 150,
+    "adult_learning": 20,
+    "openness_learning": 60,
+    "esteem_relief": 120,
+    "statuses": [
+      {"id": "member", "name": "Member", "esteem": 250},
+      {"id": "king", "name": "King", "unlocked_by": ["kingship"], "count": 1, "min_age": 16, "prefer": {"extraversion": 400, "boldness": 400, "conscientiousness": 200}, "per_year_of_age": 2, "inherited": 2000, "esteem": 1000, "leaning": {"socialize": 200, "worship": 100, "farm": -600, "herd": -600, "forage": -600, "fish": -600, "craft": -300}, "forbidden": ["farm", "herd", "forage", "fish", "settle_away"]},
+      {"id": "chief", "name": "Chief", "unlocked_by": ["kin_leadership", "ranked_society"], "lost_with": ["kingship"], "count": 1, "min_age": 30, "prefer": {"extraversion": 400, "agreeableness": 300, "conscientiousness": 300}, "per_year_of_age": 6, "inherited": 150, "esteem": 900, "leaning": {"socialize": 200, "farm": -100}},
+      {"id": "noble", "name": "Noble", "unlocked_by": ["ranked_society"], "per_mille": 30, "prefer": {"conscientiousness": 300, "extraversion": 300}, "luck": 300, "inherited": 1500, "esteem": 700, "leaning": {"socialize": 150, "farm": -400, "herd": -300, "forage": -400, "fish": -300}},
+      {"id": "priest", "name": "Priest", "unlocked_by": ["organized_religion"], "per_mille": 15, "min_age": 20, "prefer": {"conscientiousness": 400, "openness": 300, "agreeableness": 300}, "per_year_of_age": 2, "inherited": 200, "esteem": 650, "leaning": {"worship": 500, "farm": -300, "herd": -200}},
+      {"id": "shaman", "name": "Shaman", "unlocked_by": ["ancestor_cults"], "lost_with": ["organized_religion"], "per_mille": 10, "min_age": 25, "prefer": {"openness": 600, "neuroticism": 300}, "per_year_of_age": 2, "inherited": 100, "esteem": 550, "leaning": {"worship": 400}},
+      {"id": "scribe", "name": "Scribe", "unlocked_by": ["proto_writing", "writing"], "skills_any": ["proto_writing", "writing"], "per_mille": 8, "prefer": {"conscientiousness": 600, "openness": 400}, "inherited": 300, "esteem": 550, "leaning": {"worship": 150, "farm": -300, "herd": -300}},
+      {"id": "smith", "name": "Smith", "unlocked_by": ["copper_smelting", "metal_casting"], "skills_any": ["copper_smelting", "metal_casting"], "per_mille": 12, "prefer": {"conscientiousness": 500, "boldness": 200}, "inherited": 400, "esteem": 450, "leaning": {"craft": 500, "farm": -200}},
+      {"id": "artisan", "name": "Artisan", "unlocked_by": ["pottery", "weaving", "carpentry", "stone_masonry", "potters_wheel", "faience_glass"], "skills_any": ["pottery", "weaving", "carpentry", "stone_masonry", "potters_wheel", "faience_glass"], "per_mille": 50, "prefer": {"conscientiousness": 500, "openness": 300}, "inherited": 300, "esteem": 350, "leaning": {"craft": 350, "farm": -100}},
+      {"id": "warrior", "name": "Warrior", "unlocked_by": ["organized_infantry", "bronze_weapons"], "per_mille": 60, "min_age": 16, "max_age": 45, "sex": "male", "prefer": {"boldness": 700, "extraversion": 200, "agreeableness": -200}, "esteem": 500, "leaning": {"socialize": 100, "rest": 100, "farm": -400, "herd": -200}},
+      {"id": "elder", "name": "Elder", "unlocked_by": ["kin_leadership"], "per_mille": 1000, "min_age": 50, "per_year_of_age": 1, "esteem": 450, "leaning": {"socialize": 200, "care_for_children": 200, "worship": 100, "farm": -100}},
+      {"id": "bonded", "name": "Bonded labourer", "unlocked_by": ["bonded_labor"], "per_mille": 60, "prefer": {"conscientiousness": -300}, "luck": 700, "inherited": 2000, "for_life": true, "esteem": 0, "leaning": {"farm": 300, "herd": 200, "build": 200, "socialize": -100}, "forbidden": ["settle_away"]}
+    ]
+  },
   "economy": {},
   "tools": {},
   "caravan": {}
