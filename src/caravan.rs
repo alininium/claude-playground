@@ -41,6 +41,8 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
 use bevy_ecs::prelude::*;
+
+use crate::people::decide::Plan;
 use bevy_ecs::schedule::ScheduleConfigs;
 use bevy_ecs::system::ScheduleSystem;
 
@@ -597,6 +599,16 @@ impl Scout {
     }
 }
 
+/// What `depart` needs to know about someone who might leave.
+type Leaver = (
+    Entity,
+    &'static PersonId,
+    &'static mut Person,
+    &'static mut Activity,
+    &'static Family,
+    Option<&'static mut Plan>,
+);
+
 /// Sends out a caravan from every city where at least `min_adults` adults
 /// chose to settle away during the previous day. A resolve step: cities in
 /// id order.
@@ -608,19 +620,19 @@ fn depart(
     tuning: Res<CaravanConfig>,
     founding: Res<FoundingConfig>,
     mut next_caravan: ResMut<NextCaravanId>,
-    mut people: Query<(Entity, &PersonId, &mut Person, &mut Activity, &Family)>,
+    mut people: Query<Leaver>,
     mut cities: Query<(&CityId, &Position, &Population, &mut Stores)>,
 ) {
     let now = turn.0;
-    let yesterday = now.saturating_sub(TURNS_PER_DAY)..now;
     let tpy = config.turns_per_year();
     let adult = founding.adult_age;
+    // What someone did yesterday is what they went to sleep doing:
+    // `decide` records it in `Plan::last` every night.
     let mut leaving: Vec<(CityId, PersonId, Entity)> = people
         .iter()
-        .filter(|(_, _, p, a, _)| {
-            a.action == ActionKind::SettleAway
+        .filter(|(_, _, p, a, _, plan)| {
+            plan.is_some_and(|plan| plan.last == ActionKind::SettleAway)
                 && a.until != u64::MAX
-                && yesterday.contains(&a.since)
                 && !is_travelling(p.home)
                 && p.age_years(now, tpy) >= adult
         })
@@ -647,13 +659,13 @@ fn depart(
     // Children under the adult age follow their mothers.
     let children: Vec<(CityId, PersonId, PersonId, Entity)> = people
         .iter()
-        .filter(|(_, _, p, a, f)| {
+        .filter(|(_, _, p, a, f, _)| {
             f.mother.is_some()
                 && a.until != u64::MAX
                 && !is_travelling(p.home)
                 && p.age_years(now, tpy) < adult
         })
-        .map(|(e, id, p, _, f)| (p.home, f.mother.unwrap(), *id, e))
+        .map(|(e, id, p, _, f, _)| (p.home, f.mother.unwrap(), *id, e))
         .collect();
 
     for (city, adults) in groups {
@@ -688,8 +700,13 @@ fn depart(
             goal: None,
         };
         for &(_, e) in &members {
-            let (_, _, mut person, mut activity, _) = people.get_mut(e).unwrap();
+            let (_, _, mut person, mut activity, _, plan) = people.get_mut(e).unwrap();
             person.home = caravan.home();
+            // The choice is spent: once settled (or back home) they decide
+            // afresh instead of leaving again.
+            if let Some(mut plan) = plan {
+                plan.last = ActionKind::Idle;
+            }
             *activity = Activity {
                 action: ActionKind::SettleAway,
                 since: now,

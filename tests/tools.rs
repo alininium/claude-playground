@@ -27,6 +27,10 @@ fn assign(sim: &mut Simulation, count: usize, action: ActionKind) -> Vec<PersonI
     adults.truncate(count);
     assert_eq!(adults.len(), count, "the city has enough adults");
     let world = sim.world_mut();
+    // Keep them at it: no need ever becomes urgent enough to re-decide.
+    world
+        .resource_mut::<societies::people::decide::ActionCatalog>()
+        .urgent = u16::MAX;
     let mut query = world.query::<(&PersonId, &Person, &mut Activity)>();
     for (id, person, mut activity) in query.iter_mut(world) {
         if person.home != CITY {
@@ -86,10 +90,15 @@ fn set_stores(sim: &mut Simulation, items: &[(ItemId, u32)]) {
     }
 }
 
+/// What the people of `CITY` carry. (Other cities run their own lives.)
 fn equipment(sim: &mut Simulation) -> Vec<(PersonId, Equipment)> {
     let world = sim.world_mut();
-    let mut query = world.query::<(&PersonId, &Equipment)>();
-    let mut out: Vec<_> = query.iter(world).map(|(id, e)| (*id, *e)).collect();
+    let mut query = world.query::<(&PersonId, &Person, &Equipment)>();
+    let mut out: Vec<_> = query
+        .iter(world)
+        .filter(|(_, p, _)| p.home == CITY)
+        .map(|(id, _, e)| (*id, *e))
+        .collect();
     out.sort_by_key(|e| e.0);
     out
 }

@@ -295,7 +295,10 @@ fn children_learn_from_their_parents() {
         sim.people().into_iter().map(|p| (p.id, p)).collect();
     let (mut gained, mut total) = (0, 0);
     for child in &children {
-        let now = &after[&child.id];
+        // Some children die meanwhile (the life cycle runs too).
+        let Some(now) = after.get(&child.id) else {
+            continue;
+        };
         let parents: Vec<&PersonSnapshot> = [child.family.mother, child.family.father]
             .into_iter()
             .flatten()
