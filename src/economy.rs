@@ -103,6 +103,7 @@ pub struct EconomyConfig {
     pub forage_floor: u32,
     pub growing_season: GrowingSeason,
     pub off_season: OffSeason,
+    pub weather: WeatherEffects,
     pub storage: Storage,
     pub eating: Eating,
     /// Days of food each city has in store when the world begins.
@@ -158,6 +159,40 @@ pub struct OffSeason {
     pub fish_frozen: u32,
     /// Hundredths of a degree C.
     pub freezing: i32,
+}
+
+/// How the day's weather changes what the land gives, against what is
+/// usual for the place and season (see [`weather_factor`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct WeatherEffects {
+    /// Crops suffer when the soil is drier than this, per mille of its
+    /// capacity...
+    pub drought_wetness: u32,
+    /// ...down to this share of their growth in bone-dry soil, per mille.
+    pub drought_floor: u32,
+    /// Fields on a river or lake can be watered: their soil counts as at
+    /// least this wet, per mille.
+    pub irrigated_wetness: u32,
+    /// Work on a flooded tile yields this share, per mille.
+    pub flood: u32,
+    /// Share of the standing crop of a flooded tile lost each flooded day,
+    /// per mille.
+    pub flood_crop_loss: u32,
+    /// Cold or heat within this of the usual for the season does no harm,
+    /// tenths °C.
+    pub tolerance: i32,
+    /// Output lost per degree colder than that, per mille.
+    pub cold_per_degree: u32,
+    /// Output lost per degree warmer than that, per mille, when the turn is
+    /// also hotter than `heat_above`.
+    pub heat_per_degree: u32,
+    /// Tenths °C.
+    pub heat_above: i32,
+    /// Crops do not grow in a turn at or below this, tenths °C.
+    pub frost: i32,
+    /// Herds and wild food feel this share of what crops feel, per mille.
+    pub herd_share: u32,
+    pub forage_share: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -227,6 +262,9 @@ pub struct Outlook {
     pub food_days: u32,
     /// Tools in the stores that people could take.
     pub tools_available: u32,
+    /// No field of the city grows this season, so farming would yield
+    /// nothing; `decide` leaves the fields alone.
+    pub off_season: bool,
 }
 
 /// The four kinds of food work.
@@ -840,6 +878,54 @@ pub fn growing(
             || t.site.lake)
 }
 
+/// What the weather does this turn to `work` on tile `t`, per mille of a
+/// usual turn. Crops suffer from dry soil (unless watered from a river or
+/// lake), floods, frost, and cold or heat beyond the usual for the season;
+/// herds and wild food feel a share of the same; fish do not care.
+pub fn weather_factor(
+    config: &EconomyConfig,
+    climate: &Climate,
+    work: Work,
+    t: &TerritoryTile,
+) -> u32 {
+    let rules = &config.weather;
+    let share = match work {
+        Work::Farm => 1000,
+        Work::Herd => rules.herd_share.min(1000),
+        Work::Forage => rules.forage_share.min(1000),
+        Work::Fish => return 1000,
+    };
+    let i = t.index as usize;
+    let crop = if climate.soil().is_flooding(i) {
+        rules.flood.min(1000)
+    } else if work == Work::Farm && i32::from(climate.temperature(i)) <= rules.frost {
+        0
+    } else {
+        let mut wet = climate.soil().wetness(i);
+        if t.site.river || t.site.lake {
+            wet = wet.max(rules.irrigated_wetness);
+        }
+        let dry = rules.drought_wetness.max(1);
+        let floor = rules.drought_floor.min(1000);
+        let moisture = if wet >= dry {
+            1000
+        } else {
+            floor + (1000 - floor) * wet / dry
+        };
+        let anomaly = i32::from(climate.anomaly(i));
+        let tolerance = rules.tolerance.max(0);
+        let harm = if anomaly < -tolerance {
+            (-anomaly - tolerance) as u32 * rules.cold_per_degree / 10
+        } else if anomaly > tolerance && i32::from(climate.temperature(i)) > rules.heat_above {
+            (anomaly - tolerance) as u32 * rules.heat_per_degree / 10
+        } else {
+            0
+        };
+        moisture * (1000 - harm.min(1000)) / 1000
+    };
+    1000 - (1000 - crop) * share / 1000
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Plot {
     /// Index into the territory's tiles.
@@ -854,6 +940,7 @@ fn output(
     work: Work,
     quality: u32,
     season: u32,
+    weather: u32,
     tech: u64,
     tool: u32,
 ) -> u64 {
@@ -863,6 +950,8 @@ fn output(
     };
     u64::from(daily) / u64::from(config.work_turns_per_day.max(1)) * u64::from(quality) / 1000
         * u64::from(season)
+        / 1000
+        * u64::from(weather)
         / 1000
         * tech
         / 1000
@@ -975,6 +1064,7 @@ fn work_the_land(
                 work,
                 quality,
                 land.season(work, tile, season),
+                weather_factor(&config, &climate, work, tile),
                 tech,
                 tool,
             );
@@ -1101,6 +1191,20 @@ fn daily_food(
             }
         }
 
+        // Floods wash away part of the crop standing in flooded fields.
+        let flood_loss = u64::from(config.weather.flood_crop_loss.min(1000));
+        if flood_loss > 0 {
+            let mut washed = 0;
+            for (&i, crop) in larder.standing.iter_mut() {
+                if climate.soil().is_flooding(i as usize) {
+                    let lost = *crop * flood_loss / 1000;
+                    *crop -= lost;
+                    washed += lost;
+                }
+            }
+            larder.spoiled_milli += washed;
+        }
+
         // Spoilage: what fits the city's storage keeps well, the rest rots.
         let storage = &config.storage;
         let months = u64::from(storage.base_months + additive(&territory.storage, knowledge));
@@ -1156,6 +1260,7 @@ fn daily_food(
             free_pasture,
             food_days: food_days as u32,
             tools_available: outlook.tools_available,
+            off_season: farms && !territory.tiles.iter().any(|t| land.growing(t, date.season)),
         };
         if *outlook != next {
             *outlook = next;

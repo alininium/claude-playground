@@ -26,6 +26,19 @@
 //! [`SettleAwayRule`]), and it leans strongly on boldness. The "for days on
 //! end" part also keeps a city whose `Outlook` is still all zeros (nothing
 //! has filled it in yet) from emptying itself on the first day.
+//!
+//! A city can also outgrow its social organisation: how many people it can
+//! hold together depends on what it knows (kin leadership, ranks, temples,
+//! kings, see [`OrganisationRule`]). Above that size, some of each day's
+//! decisions consider `SettleAway` whatever the land and the stores, more
+//! and more strongly the fuller the city: the boldest leave first, a few
+//! at a time, until the city is back within its limit.
+//!
+//! # Providing
+//! People work for the city's stores as well as for their own hunger: when
+//! the stores hold less than [`ProvisionRule::reserve_days`] of food, every
+//! action that serves food scores as if they were that hungry (see
+//! [`ProvisionRule`]). Nobody farms in a season when no field grows.
 
 use std::collections::BTreeMap;
 
@@ -43,9 +56,9 @@ use super::{
 use crate::biome::Biomes;
 use crate::city::CityId;
 use crate::config::SimConfig;
-use crate::economy::Outlook;
+use crate::economy::{Larder, Outlook};
 use crate::map::{Map, Position};
-use crate::tech::{Site, TechId, TechTree};
+use crate::tech::{Knowledge, Site, TechId, TechTree};
 use crate::time::{Date, TURNS_PER_DAY, TimeOfDay, Turn};
 
 /// Every action, in the order of [`ActionKind`]: ties in scoring go to the
@@ -117,7 +130,94 @@ struct ActionsSection {
     noise: u32,
     pressing_food: u16,
     settle_away: SettleAwayRule,
+    provision: ProvisionRule,
+    organisation: OrganisationRule,
     catalog: BTreeMap<ActionKind, ActionSpec>,
+}
+
+/// Working for the stores: with no food in store, food work is as urgent
+/// as `urgency`; with `reserve_days` per head or more, not at all; linear
+/// in between.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProvisionRule {
+    pub reserve_days: u32,
+    pub urgency: u16,
+}
+
+impl ProvisionRule {
+    /// The food urgency the stores of a city with `food_days` per head add.
+    pub fn urgency(&self, food_days: u32) -> u16 {
+        let reserve = self.reserve_days.max(1);
+        let short = reserve.saturating_sub(food_days);
+        (u32::from(self.urgency) * short / reserve) as u16
+    }
+}
+
+/// How many people a city's social organisation holds together, and how
+/// hard the overflow pushes people out.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrganisationRule {
+    /// The city's limit is the largest `people` of the levels it qualifies
+    /// for (it knows any of their `techs_any`; none: every city).
+    pub levels: Vec<OrganisationLevel>,
+    /// The chance, per mille, that a decision of an adult in an overfull
+    /// city considers settling away, per 1000 per mille the city is above
+    /// its limit (twice its limit: `urge` in full)...
+    pub urge: u32,
+    /// ...at most this.
+    pub max_urge: u32,
+    /// Added to the score of settling away for those who consider it, per
+    /// 1000 per mille above the limit...
+    pub pull: u32,
+    /// ...at most this.
+    pub max_pull: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrganisationLevel {
+    pub name: String,
+    #[serde(default)]
+    pub techs_any: Vec<String>,
+    pub people: u32,
+}
+
+impl OrganisationRule {
+    /// The most people a city knowing `knowledge` holds together.
+    pub fn limit(&self, tree: &TechTree, knowledge: &Knowledge) -> u32 {
+        self.levels
+            .iter()
+            .filter(|level| {
+                level.techs_any.is_empty()
+                    || level
+                        .techs_any
+                        .iter()
+                        .filter_map(|t| tree.id(t))
+                        .any(|t| knowledge.knows(t))
+            })
+            .map(|level| level.people)
+            .max()
+            .unwrap_or(u32::MAX)
+    }
+
+    /// How far `residents` are above `limit`, per mille of the limit.
+    pub fn crowding(residents: u32, limit: u32) -> u32 {
+        let over = u64::from(residents.saturating_sub(limit));
+        (over * 1000 / u64::from(limit.max(1))).min(u64::from(u32::MAX)) as u32
+    }
+
+    /// The chance per mille that a decision at a crowding of `crowding`
+    /// per mille considers settling away.
+    pub fn urge(&self, crowding: u32) -> u32 {
+        (u64::from(crowding) * u64::from(self.urge) / 1000).min(u64::from(self.max_urge)) as u32
+    }
+
+    /// What a crowding of `crowding` per mille adds to settling away.
+    pub fn pull(&self, crowding: u32) -> u32 {
+        (u64::from(crowding) * u64::from(self.pull) / 1000).min(u64::from(self.max_pull)) as u32
+    }
 }
 
 /// When settling away becomes a choice at all.
@@ -169,6 +269,8 @@ pub struct ActionCatalog {
     /// Hunger at which a day counts toward [`SettleAwayRule::hungry_days`].
     pub pressing_food: u16,
     pub settle_away: SettleAwayRule,
+    pub provision: ProvisionRule,
+    pub organisation: OrganisationRule,
     index: [Option<u8>; ACTIONS.len()],
 }
 
@@ -214,6 +316,8 @@ impl ActionCatalog {
             noise: section.noise,
             pressing_food: section.pressing_food,
             settle_away: section.settle_away,
+            provision: section.provision,
+            organisation: section.organisation,
             index,
         }
     }
@@ -278,6 +382,11 @@ struct Place {
     free_pasture: u32,
     food_days: u32,
     water: bool,
+    off_season: bool,
+    /// How hungry the stores make food work (see [`ProvisionRule`]).
+    provision: u16,
+    /// Per mille above the organisation limit.
+    crowding: u32,
 }
 
 /// Everything a decision reads besides the person.
@@ -337,7 +446,7 @@ fn decide(
     map: Res<Map>,
     biomes: Res<Biomes>,
     threads: Res<Threads>,
-    cities: Query<(&CityId, &Position, &Outlook)>,
+    cities: Query<(&CityId, &Position, &Outlook, Option<&Larder>, &Knowledge)>,
     mut people: PersonQuery,
     mut techs: Local<Option<Vec<Vec<TechId>>>>,
 ) {
@@ -375,7 +484,7 @@ fn decide(
             .collect()
     });
     let mut places = Vec::new();
-    for (id, position, outlook) in &cities {
+    for (id, position, outlook, larder, knowledge) in &cities {
         let i = id.0 as usize;
         if places.len() <= i {
             places.resize(i + 1, Place::default());
@@ -387,6 +496,12 @@ fn decide(
             free_pasture: outlook.free_pasture,
             food_days: outlook.food_days,
             water: site.river || site.lake || site.coast,
+            off_season: outlook.off_season,
+            provision: catalog.provision.urgency(outlook.food_days),
+            crowding: OrganisationRule::crowding(
+                larder.map_or(0, |l| l.residents),
+                catalog.organisation.limit(&tree, knowledge),
+            ),
         };
     }
     let context = Context {
@@ -522,6 +637,11 @@ fn choose(row: &mut Row, context: &Context) -> ActionKind {
     let traits = row.traits.as_array();
     let draw = row.rng.next_u64();
     let noise = u64::from(catalog.noise) + 1;
+    // In an overfull city some decisions consider leaving, more the fuller
+    // it is (the same draw, mixed with a key no action uses).
+    let crowded = place.crowding > 0
+        && rng::mix(draw, ACTIONS.len() as u64) % 1000
+            < u64::from(catalog.organisation.urge(place.crowding));
 
     let mut best = (i64::MIN, ActionKind::Idle);
     for (k, action) in catalog.actions.iter().enumerate() {
@@ -532,9 +652,11 @@ fn choose(row: &mut Row, context: &Context) -> ActionKind {
                 || context.techs[k].iter().any(|&t| row.skills.0.knows(t)))
             && (!action.land || room_for(kind, &place) > 0 || current == kind || last == kind)
             && (!action.water || place.water)
+            && (kind != ActionKind::Farm || !place.off_season)
             && (!action.unpartnered || row.family.partner.is_none())
             && (!action.parents || row.family.births > 0)
             && (!action.settle_away
+                || crowded
                 || (place.free_land == 0
                     && place.food_days <= catalog.settle_away.max_food_days
                     && food >= catalog.pressing_food
@@ -547,15 +669,29 @@ fn choose(row: &mut Row, context: &Context) -> ActionKind {
             .urgency
             .iter()
             .zip(action.serves)
-            .map(|(&u, s)| i64::from(u) * i64::from(s))
+            .enumerate()
+            .map(|(n, (&u, s))| {
+                let u = if n == Need::Food as usize {
+                    u.max(place.provision)
+                } else {
+                    u
+                };
+                i64::from(u) * i64::from(s)
+            })
             .sum::<i64>()
             / 1000;
+        let pull = if action.settle_away && crowded {
+            i64::from(catalog.organisation.pull(place.crowding))
+        } else {
+            0
+        };
         let character: i64 = traits
             .iter()
             .zip(action.traits)
             .map(|(&t, w)| i64::from(w) * (i64::from(t) - 128) / 128)
             .sum();
         let score = needs
+            + pull
             + character
             + i64::from(context.statuses.leaning(row.status, kind))
             + (rng::mix(draw, k as u64) % noise) as i64;

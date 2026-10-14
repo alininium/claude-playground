@@ -34,8 +34,14 @@ status, a family and their own random-number stream. Settlements start as
 households of 50–500 people depending on their kind and the fertility of
 their land. [docs/PEOPLE.md](docs/PEOPLE.md) describes the design and the
 modules being built on it: needs, decisions, food, tools, life cycle,
-statuses and caravans. `cargo run --release --example society -- [seed] [years]` prints how a
-world's people fare year by year.
+statuses and caravans. Food is scarce by design: yields follow the weather
+(droughts, floods, frosts, cold spells and volcanic winters), most adults
+work for food, and every city stops at the capacity of its land or of
+its social organisation (a kin-led village holds about 400 people, a
+chiefdom 1200, a kingdom 5000), beyond which its boldest people leave to
+found new settlements. `cargo run --release --example society -- [seed] [years]` prints how a
+world's people fare year by year, and `cargo run --release --example millennium -- [seed] [years] [every]`
+logs a long run's famines, technologies and growth.
 
 **[docs/MODEL.md](docs/MODEL.md)** documents every formula: which physical
 laws and published methods it is built on, and which effects and constants

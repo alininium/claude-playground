@@ -550,6 +550,16 @@ impl Climate {
         self.temperature[index]
     }
 
+    /// How much warmer than usual tile `index` is this turn, tenths °C: the
+    /// day's weather less any volcanic cooling of its hemisphere. The
+    /// seasons, the daily cycle and slow drift are not anomalies (the
+    /// climate normals follow them).
+    pub fn anomaly(&self, index: usize) -> i16 {
+        let row = index / self.width.max(1);
+        let volcanic = self.volcanic_cooling[usize::from(self.latitudes[row] < 0)];
+        self.weather.temperature(index).saturating_sub(volcanic)
+    }
+
     pub fn temperatures(&self) -> &[i16] {
         &self.temperature
     }

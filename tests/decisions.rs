@@ -8,6 +8,7 @@ use common::Fixture;
 use societies::Simulation;
 use societies::city::CityId;
 use societies::economy::Outlook;
+use societies::people::decide::ActionCatalog;
 use societies::people::founding::FoundingConfig;
 use societies::people::{ActionKind, Activity, Need, Needs, PersonSnapshot};
 use societies::time::TimeOfDay;
@@ -80,6 +81,8 @@ fn hungry_people_choose_food_work() {
     set_needs(&mut hungry, needs_at(0, &[(Need::Food, 1000)]));
     hungry.step();
     let mut fed = common::sim(Fixture::Small);
+    // Full stores: nobody works for the city's reserve either.
+    set_outlook(&mut fed, 1000, 365);
     set_needs(
         &mut fed,
         needs_at(0, &[(Need::Company, 400), (Need::Fun, 400)]),
@@ -94,6 +97,48 @@ fn hungry_people_choose_food_work() {
 }
 
 #[test]
+fn empty_stores_send_fed_people_to_food_work() {
+    // Nobody is hungry, but the city has nothing put by for the lean
+    // season: people work for the stores.
+    let food_work = |food_days: u32| {
+        let mut sim = common::sim(Fixture::Small);
+        set_outlook(&mut sim, 1000, food_days);
+        set_needs(
+            &mut sim,
+            needs_at(0, &[(Need::Company, 400), (Need::Fun, 400)]),
+        );
+        sim.step();
+        share(&adults(&mut sim), &FOOD_WORK)
+    };
+    let (empty, half, full) = (food_work(0), food_work(60), food_work(365));
+    assert!(empty > 600, "{empty}‰ work with empty stores");
+    assert!(
+        empty > half && half > full,
+        "{empty}‰ / {half}‰ / {full}‰ work with 0, 60 and 365 days in store"
+    );
+    assert!(full < 400, "{full}‰ work with a year in store");
+}
+
+#[test]
+fn nobody_farms_when_no_field_grows() {
+    let mut sim = common::sim(Fixture::Small);
+    set_outlook(&mut sim, 1000, 0);
+    {
+        let world = sim.world_mut();
+        let mut query = world.query::<&mut Outlook>();
+        for mut outlook in query.iter_mut(world) {
+            outlook.off_season = true;
+        }
+    }
+    set_needs(&mut sim, needs_at(0, &[(Need::Food, 1000)]));
+    sim.step();
+    let people = adults(&mut sim);
+    assert_eq!(share(&people, &[ActionKind::Farm]), 0);
+    // They find their food some other way.
+    assert!(share(&people, &FOOD_WORK) > 900);
+}
+
+#[test]
 fn tired_people_sleep_or_rest() {
     let mut sim = common::sim(Fixture::Small);
     set_needs(&mut sim, needs_at(100, &[(Need::Rest, 1000)]));
@@ -105,6 +150,7 @@ fn tired_people_sleep_or_rest() {
 #[test]
 fn extraverts_socialize_more_than_introverts() {
     let mut sim = common::sim(Fixture::Small);
+    set_outlook(&mut sim, 1000, 365);
     set_needs(
         &mut sim,
         needs_at(
@@ -425,4 +471,96 @@ fn decisions_are_the_same_on_any_number_of_threads() {
             one.turn()
         );
     }
+}
+
+#[test]
+fn organisation_limits_follow_what_a_city_knows() {
+    use societies::people::decide::OrganisationRule;
+    let tree = societies::tech::TechTree::builtin();
+    let rule = &ActionCatalog::builtin().organisation;
+    let mut knowledge = societies::tech::Knowledge::new(&tree);
+    let limit = |k: &societies::tech::Knowledge| rule.limit(&tree, k);
+    let village = limit(&knowledge);
+    knowledge.learn(&tree, tree.id("ranked_society").unwrap(), None);
+    let chiefdom = limit(&knowledge);
+    knowledge.learn(&tree, tree.id("kingship").unwrap(), None);
+    let kingdom = limit(&knowledge);
+    assert!(village >= 150 && village < chiefdom && chiefdom < kingdom);
+    // The largest level known counts, whatever else is known.
+    knowledge.learn(&tree, tree.id("taxation").unwrap(), None);
+    assert_eq!(limit(&knowledge), kingdom);
+
+    assert_eq!(OrganisationRule::crowding(300, 400), 0);
+    assert_eq!(OrganisationRule::crowding(500, 400), 250);
+    assert_eq!(OrganisationRule::crowding(800, 400), 1000);
+    assert!(rule.pull(250) < rule.pull(1000));
+    assert_eq!(rule.pull(1_000_000), rule.max_pull);
+    assert_eq!(rule.pull(0), 0);
+    assert!(rule.urge(250) < rule.urge(1000));
+    assert_eq!(rule.urge(1_000_000), rule.max_urge);
+    assert!(rule.max_urge < 500, "most decisions never consider leaving");
+}
+
+/// Sets every city's organisation limit to `people`.
+fn set_limit(sim: &mut Simulation, people: u32) {
+    let mut catalog = sim.world_mut().resource_mut::<ActionCatalog>();
+    catalog.organisation.levels = vec![societies::people::decide::OrganisationLevel {
+        name: "test".into(),
+        techs_any: Vec::new(),
+        people,
+    }];
+}
+
+#[test]
+fn crowded_cities_send_bold_adults_away_even_with_land_and_food() {
+    let mut sim = common::sim(Fixture::Small);
+    set_limit(&mut sim, 20);
+    // Nobody is short of anything: only the crowding pushes them.
+    let days = settlers_over(&mut sim, 4);
+    // Not before the first evening has counted the residents.
+    assert!(
+        days[0].is_empty(),
+        "{} left on the first day",
+        days[0].len()
+    );
+    let settlers: Vec<(u64, u8)> = days[1..].iter().flatten().copied().collect();
+    assert!(settlers.len() >= 5, "only {} want to leave", settlers.len());
+    let people = adults(&mut sim);
+    // However crowded, the city does not empty at once.
+    for day in &days {
+        assert!(
+            day.len() * 3 < people.len(),
+            "{} of {} leave at once",
+            day.len(),
+            people.len()
+        );
+    }
+    let mean = |v: Vec<u8>| v.iter().map(|&b| u64::from(b)).sum::<u64>() / v.len().max(1) as u64;
+    let bold = mean(settlers.iter().map(|&(_, b)| b).collect());
+    let all = mean(people.iter().map(|p| p.traits.boldness).collect());
+    // Chance picks who thinks of leaving, character who goes.
+    assert!(
+        bold > all + 15,
+        "settlers' boldness {bold}, everyone's {all}"
+    );
+}
+
+#[test]
+fn the_more_crowded_the_city_the_more_leave() {
+    let leaving = |limit: u32| {
+        let mut sim = common::sim(Fixture::Small);
+        set_limit(&mut sim, limit);
+        settlers_over(&mut sim, 4)[1..]
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>()
+    };
+    let cities = common::sim(Fixture::Small).cities();
+    let largest = cities.iter().map(|c| c.population as u32).max().unwrap();
+    let (slightly, very) = (leaving(largest * 9 / 10), leaving(20));
+    assert!(
+        very > slightly,
+        "{very} leave very crowded cities, {slightly} slightly crowded"
+    );
+    assert_eq!(leaving(largest * 10), 0);
 }

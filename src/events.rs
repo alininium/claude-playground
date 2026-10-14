@@ -15,6 +15,14 @@ pub enum SimEvent {
         position: Position,
         people: People,
     },
+    /// The last people of a city died or left, and no caravan of its own
+    /// is still on the road to come back to it: its land is free again.
+    CityAbandoned {
+        turn: u64,
+        id: CityId,
+        name: String,
+        position: Position,
+    },
     /// A volcano erupted. `cause` is its geological setting; `repose_years`
     /// how long it had been quiet (None for its first eruption on record).
     Eruption {
