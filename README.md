@@ -210,6 +210,40 @@ Tests that are not about world generation start from premade worlds in
 `tests/fixtures/` (`tests/common/mod.rs`). A missing or outdated fixture is
 regenerated automatically; delete them after changing world generation.
 
+## Technologies (`data/technologies.json`, `src/tech.rs`)
+
+The simulation starts in **4500 BCE**. `data/technologies.json` lists 87
+technologies from fire and stone tools up to tin bronze, chariots, writing and
+law codes. They fall into ten categories (baseline, agriculture, water, crafts,
+metallurgy, transport, trade, knowledge, society, warfare). Each entry has:
+
+- prerequisites: `requires` (all of them) and `requires_any` (at least one)
+- environmental `needs`: biomes, landforms, water access (river, lake or coast), resources
+- an `invention` weight and a `diffusion` rate
+- a `start` share: the per mille of suitable cities that know it in 4500 BCE
+- typed `effects`: per-mille multipliers such as `food_yield`, `move_cost_sea` and `siege`, plus `unlock` features. They are applied by later systems.
+
+Six technologies have **regional variants** (19 in all): cereals (wheat and
+barley, millet, rice, sorghum), root crops, tree crops, small livestock,
+cattle and pack animals. A variant only spreads where its environment suits
+it, and knowing any variant counts as knowing the technology.
+
+Knowledge belongs to **cities** (the `Knowledge` component). When a city is
+founded it gets the start-year technologies that fit its tile and
+neighbours, drawn from a random stream of its own. Editing the file never
+moves cities or changes the world.
+
+The file is compiled in and checked when it loads. The checks cover:
+
+- unique ids
+- known prerequisites, and no cycles
+- known effect kinds, resources and biome names
+- prerequisites of starting technologies must also start
+- nothing starts before its historical date
+
+Use `--technologies FILE` or `TechTree::load` with
+`Simulation::from_world_with_technologies` to try a different tree.
+
 ## Fifty years of climate
 
 One run of seed 3 (256×128) over 50 simulated years.
@@ -232,7 +266,7 @@ and snow cover changed.
 ![Year 1 vs year 51, ice and snow change](docs/figures/3-fifty-years-ice.png)
 
 **What changed.** Annual mean temperature, year 50 minus year 1, plus the
-trends. With the default drift (150-year timescale, ±0.5 °C) there is no
+trends. With the default drift (150-year timescale, ±0.8 °C) there is no
 strong climate trend over 50 years. The temperature difference is mostly the
 oscillation, weather and volcanic aerosols. The ice sheets start out settled
 (see the spin-up in docs/MODEL.md), so the glacier changes are small.
@@ -304,6 +338,7 @@ that way, every system must:
 | `src/volcano.rs` | Volcano entities, `Volcanism` resource, eruptions |
 | `src/journal.rs` | `Journal` resource: notable events by severity |
 | `src/save.rs` | `WorldSave`: binary and JSON world files |
+| `src/tech.rs`, `data/technologies.json` | Technology tree: loading, validation, regional variants, each city's `Knowledge` |
 | `src/city.rs` | City components, `found_initial_cities`, the `grow_cities` system |
 | `src/events.rs` | `EventLog` of happenings (city foundings, eruptions) |
 | `src/render.rs` | ASCII and PNG rendering |

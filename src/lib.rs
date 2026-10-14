@@ -21,6 +21,7 @@ pub mod map;
 pub mod render;
 pub mod rng;
 pub mod save;
+pub mod tech;
 pub mod time;
 pub mod volcano;
 
@@ -37,6 +38,7 @@ use journal::Journal;
 use map::{Map, Position};
 use rng::SimRng;
 use save::WorldSave;
+use tech::{Knowledge, TechTree};
 use time::{Date, Turn};
 use volcano::Volcanism;
 
@@ -57,7 +59,12 @@ pub struct CitySnapshot {
     pub position: Position,
     pub population: u64,
     pub founded_on: u64,
+    pub knowledge: Knowledge,
 }
+
+/// Mixed into the society seed for the stream that hands out starting
+/// technologies.
+const TECH_STREAM: u64 = 0x7EC4_0000_0000_0001;
 
 impl Simulation {
     /// Generates a new world from `config` and founds its cities.
@@ -106,6 +113,16 @@ impl Simulation {
     /// `config`: city settings, eruption rates and aerosol strength, and the
     /// oscillation's period, damping and amplitude.
     pub fn from_world(save: WorldSave, config: SimConfig) -> Self {
+        Self::from_world_with_technologies(save, config, TechTree::builtin())
+    }
+
+    /// Like [`Simulation::from_world`], with a technology tree of your own
+    /// (see [`TechTree::load`]) instead of the built-in one.
+    pub fn from_world_with_technologies(
+        save: WorldSave,
+        config: SimConfig,
+        tree: TechTree,
+    ) -> Self {
         let world_config = save.config.clone();
         let config = SimConfig {
             seed: world_config.seed,
@@ -130,15 +147,20 @@ impl Simulation {
             world.spawn((volcano, position));
         }
         let mut society_rng = SimRng::from_seed(save.society_seed);
+        let mut tech_rng = SimRng::from_seed(save.society_seed ^ TECH_STREAM);
         city::found_initial_cities(
             &mut world,
             save.turn,
             &config,
             &save.map,
             &save.climate,
+            &save.biomes,
             &save.fertility,
+            &tree,
             &mut society_rng,
+            &mut tech_rng,
         );
+        world.insert_resource(tree);
         world.insert_resource(save.map);
         world.insert_resource(save.climate);
         world.insert_resource(save.biomes);
@@ -253,6 +275,11 @@ impl Simulation {
         self.world.resource::<Map>()
     }
 
+    /// The technology tree the cities' knowledge refers to.
+    pub fn technologies(&self) -> &TechTree {
+        self.world.resource::<TechTree>()
+    }
+
     pub fn events(&self) -> &EventLog {
         self.world.resource::<EventLog>()
     }
@@ -264,15 +291,16 @@ impl Simulation {
     pub fn cities(&mut self) -> Vec<CitySnapshot> {
         let mut query = self
             .world
-            .query::<(&CityId, &City, &Position, &Population)>();
+            .query::<(&CityId, &City, &Position, &Population, &Knowledge)>();
         let mut cities: Vec<_> = query
             .iter(&self.world)
-            .map(|(id, city, pos, pop)| CitySnapshot {
+            .map(|(id, city, pos, pop, knowledge)| CitySnapshot {
                 id: *id,
                 name: city.name.clone(),
                 position: *pos,
                 population: pop.count,
                 founded_on: city.founded_on,
+                knowledge: knowledge.clone(),
             })
             .collect();
         cities.sort_by_key(|c| c.id);
@@ -323,10 +351,10 @@ impl Simulation {
     fn cities_digest(&mut self, h: &mut Fnv1a) {
         let mut query = self
             .world
-            .query::<(&CityId, &City, &Position, &Population)>();
+            .query::<(&CityId, &City, &Position, &Population, &Knowledge)>();
         let mut rows: Vec<_> = query.iter(&self.world).collect();
         rows.sort_by_key(|(id, ..)| **id);
-        for (id, city, pos, pop) in rows {
+        for (id, city, pos, pop, knowledge) in rows {
             h.write_u64(u64::from(id.0));
             h.write(city.name.as_bytes());
             h.write_u64(city.founded_on);
@@ -334,6 +362,7 @@ impl Simulation {
             h.write_u64(u64::from(pos.y));
             h.write_u64(pop.count);
             h.write_u64(pop.growth_remainder);
+            knowledge.digest(&mut |v| h.write_u64(v));
         }
     }
 
