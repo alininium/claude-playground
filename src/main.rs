@@ -232,6 +232,7 @@ fn main() -> ExitCode {
         }
     }
     let total: u64 = cities.iter().map(|c| c.population).sum();
+    print_people_summary(&mut sim);
     let tribes = cities
         .iter()
         .filter(|c| c.people == People::Barbarian)
@@ -416,5 +417,45 @@ fn print_volcano_summary(sim: &mut Simulation) {
         volcanoes.len(),
         count(societies::volcano::VolcanoKind::Arc),
         count(societies::volcano::VolcanoKind::Hotspot),
+    );
+}
+
+fn print_people_summary(sim: &mut Simulation) {
+    use societies::people::Sex;
+    let people = sim.people();
+    if people.is_empty() {
+        return;
+    }
+    let tpy = sim.config().turns_per_year();
+    let turn = sim.turn();
+    let ages: Vec<u32> = people
+        .iter()
+        .map(|p| p.person.age_years(turn, tpy))
+        .collect();
+    let band = |lo: u32, hi: u32| ages.iter().filter(|&&a| a >= lo && a < hi).count();
+    let women = people
+        .iter()
+        .filter(|p| p.person.sex == Sex::Female)
+        .count();
+    let couples = people
+        .iter()
+        .filter(|p| p.person.sex == Sex::Female && p.family.partner.is_some())
+        .count();
+    let adults: Vec<_> = people
+        .iter()
+        .zip(&ages)
+        .filter(|&(_, &a)| a >= 15)
+        .map(|(p, _)| p.skills.count())
+        .collect();
+    println!(
+        "\npeople: {} ({} women, {} men); children under 15 {}, adults 15-49 {}, 50+ {}; {} couples; adults know {:.1} technologies on average",
+        people.len(),
+        women,
+        people.len() - women,
+        band(0, 15),
+        band(15, 50),
+        band(50, 200),
+        couples,
+        adults.iter().sum::<usize>() as f64 / adults.len().max(1) as f64
     );
 }

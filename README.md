@@ -28,6 +28,14 @@ No two settlements are closer than 800 km. They grow slowly (logistic growth
 toward a carrying capacity), and no new ones are founded during play. Worlds
 can be saved and loaded.
 
+**People** are individual ECS entities: each has a sex, an age, a home city
+(its culture), a character, needs, the technologies they personally know, a
+status, a family and their own random-number stream. Settlements start as
+households of 50–500 people depending on their kind and the fertility of
+their land. [docs/PEOPLE.md](docs/PEOPLE.md) describes the design and the
+modules being built on it: needs, decisions, food, tools, life cycle,
+statuses and caravans.
+
 **[docs/MODEL.md](docs/MODEL.md)** documents every formula: which physical
 laws and published methods it is built on, and which effects and constants
 are this project's own simplifications.
@@ -379,6 +387,8 @@ tests of a file (`common::generated`).
 | `src/journal.rs` | `Journal` resource: notable events by severity |
 | `src/save.rs` | `WorldSave`: binary and JSON world files |
 | `src/tech.rs`, `data/technologies.json` | Technology tree: loading, validation, regional variants, each city's `Knowledge` |
+| `src/people/` | People: components, founding households, per-person RNG, parallel helper, census; needs, decisions, life cycle, statuses |
+| `src/economy.rs`, `src/tools.rs`, `src/caravan.rs` | City stores and land, tools, caravans |
 | `src/city.rs` | City components, `found_initial_cities`, the `grow_cities` system |
 | `src/events.rs` | `EventLog` of happenings (city foundings, eruptions) |
 | `src/render.rs` | ASCII and PNG rendering |

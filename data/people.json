@@ -1,0 +1,29 @@
+{
+  "format": "societies-people",
+  "version": 1,
+  "notes": [
+    "Tuning for people. Each section belongs to one module: founding (src/people/founding.rs), needs (src/people/needs.rs), actions (src/people/decide.rs), life (src/people/life.rs), status (src/people/status.rs), economy (src/economy.rs), tools (src/tools.rs), caravan (src/caravan.rs).",
+    "All numbers are integers. Shares and multipliers are per mille."
+  ],
+  "founding": {
+    "age_table": [
+      [0, 150], [5, 130], [10, 120], [15, 110], [20, 100], [25, 90], [30, 80],
+      [35, 70], [40, 50], [45, 40], [50, 30], [55, 20], [60, 10]
+    ],
+    "age_table_note": "[lowest age of a five-year band, per mille of people in it]: a pre-modern population with life expectancy around 30.",
+    "adult_age": 12,
+    "skill_share": 700,
+    "skill_share_note": "Each adult knows each of the city's non-baseline technologies with this chance (if they know its prerequisites). Children know the baseline.",
+    "marriage_age": { "female": 16, "male": 18 },
+    "max_husband_age_gap": 15,
+    "mother_age_at_birth": [15, 42],
+    "initial_needs_max": 300
+  },
+  "needs": {},
+  "actions": {},
+  "life": {},
+  "status": {},
+  "economy": {},
+  "tools": {},
+  "caravan": {}
+}

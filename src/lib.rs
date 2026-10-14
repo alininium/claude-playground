@@ -11,18 +11,22 @@
 //! - No wall-clock time, no `HashMap` iteration with random hashers.
 
 pub mod biome;
+pub mod caravan;
 pub mod city;
 pub mod climate;
 pub mod config;
+pub mod economy;
 pub mod events;
 pub mod fertility;
 pub mod journal;
 pub mod map;
+pub mod people;
 pub mod render;
 pub mod rng;
 pub mod save;
 pub mod tech;
 pub mod time;
+pub mod tools;
 pub mod volcano;
 
 use bevy_ecs::prelude::*;
@@ -66,6 +70,10 @@ pub struct CitySnapshot {
 /// Mixed into the society seed for the stream that hands out starting
 /// technologies.
 const TECH_STREAM: u64 = 0x7EC4_0000_0000_0001;
+
+/// Mixed into the society seed for the stream that creates the first
+/// people (their seeds; everything else comes from their own streams).
+const PEOPLE_STREAM: u64 = 0x9E09_1E00_0000_0001;
 
 impl Simulation {
     /// Generates a new world from `config` and founds its cities.
@@ -144,11 +152,14 @@ impl Simulation {
 
         let mut world = World::new();
         world.insert_resource(EventLog::default());
+        people::install(&mut world);
         for (volcano, position) in save.volcanoes {
             world.spawn((volcano, position));
         }
         let mut society_rng = SimRng::from_seed(save.society_seed);
         let mut tech_rng = SimRng::from_seed(save.society_seed ^ TECH_STREAM);
+        let mut people_rng = SimRng::from_seed(save.society_seed ^ PEOPLE_STREAM);
+        let founding = world.resource::<people::founding::FoundingConfig>().clone();
         city::found_initial_cities(
             &mut world,
             save.turn,
@@ -160,6 +171,8 @@ impl Simulation {
             &tree,
             &mut society_rng,
             &mut tech_rng,
+            &founding,
+            &mut people_rng,
         );
         world.insert_resource(tree);
         world.insert_resource(save.map);
@@ -183,7 +196,14 @@ impl Simulation {
                 journal::update_journal,
                 biome::update_biomes,
                 fertility::update_fertility,
-                city::grow_cities,
+                people::needs::systems(),
+                people::decide::systems(),
+                economy::systems(),
+                tools::systems(),
+                people::life::systems(),
+                people::status::systems(),
+                caravan::systems(),
+                people::census,
             )
                 .chain(),
         );
@@ -281,12 +301,30 @@ impl Simulation {
         self.world.resource::<TechTree>()
     }
 
+    /// Everyone alive, in id order.
+    pub fn people(&mut self) -> Vec<people::PersonSnapshot> {
+        people::people(&mut self.world)
+    }
+
+    /// How many threads per-person work may use. Results are the same for
+    /// any number.
+    pub fn set_threads(&mut self, threads: usize) {
+        self.world
+            .insert_resource(people::parallel::Threads(threads.max(1)));
+    }
+
     pub fn events(&self) -> &EventLog {
         self.world.resource::<EventLog>()
     }
 
     pub fn world(&self) -> &World {
         &self.world
+    }
+
+    /// Direct access to the ECS world, for tests and tools. Changing it
+    /// changes the simulation.
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
     }
 
     pub fn cities(&mut self) -> Vec<CitySnapshot> {
@@ -314,6 +352,7 @@ impl Simulation {
     pub fn state_digest(&mut self) -> u64 {
         let mut h = Fnv1a(self.world_digest());
         self.cities_digest(&mut h);
+        people::digest(&mut self.world, &mut |v| h.write_u64(v));
         h.finish()
     }
 
@@ -364,7 +403,7 @@ impl Simulation {
             h.write_u64(u64::from(pos.x));
             h.write_u64(u64::from(pos.y));
             h.write_u64(pop.count);
-            h.write_u64(pop.growth_remainder);
+            h.write_u64(pop.pending_deaths);
             knowledge.digest(&mut |v| h.write_u64(v));
         }
     }

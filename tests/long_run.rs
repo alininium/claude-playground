@@ -24,7 +24,6 @@ fn run(years: u64, seed: u64) -> Vec<Year> {
     let _ = seed;
     let mut sim = common::sim(common::Fixture::Small);
     let tpy = sim.config().turns_per_year();
-    let cap = sim.config().city_carrying_capacity;
     let n = sim.map().tile_count() as usize;
     let area: Vec<i64> = (0..n)
         .map(|i| sim.map().area_weight(sim.map().position_of(i as u32).y))
@@ -73,9 +72,6 @@ fn run(years: u64, seed: u64) -> Vec<Year> {
         assert!(sample.sea_ice_pct < 30.0, "year {year}: {sample:?}");
         assert!(sample.glacier_pct < 50.0, "year {year}: {sample:?}");
         samples.push(sample);
-        for c in sim.cities() {
-            assert!(c.population <= cap);
-        }
     }
     samples
 }

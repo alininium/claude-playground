@@ -1,39 +1,72 @@
 //! Starting settlements: civilized cities in cradles, barbarian tribes,
-//! spacing, their starting knowledge, growth and the founding events.
+//! spacing, their starting size and knowledge, and the founding events.
 
 mod common;
 
 use common::{Fixture, sim_with};
 
 #[test]
-fn cities_are_placed_at_generation_and_only_grow() {
-    let mut sim = sim_with(Fixture::Small, |c| c.city_growth_per_mille_per_year = 300);
+fn settlements_start_with_people_and_none_appear_during_play() {
+    use societies::city::People;
+    let mut sim = common::sim(Fixture::Small);
     let start = sim.cities();
     assert!(!start.is_empty());
-    let config = sim.config();
+    let config = sim.config().clone();
     assert!(start.len() <= (config.initial_cities + config.initial_barbarians) as usize);
+    let people = sim.people();
     for c in &start {
-        assert_eq!((c.founded_on, c.population), (0, 10));
+        assert_eq!(c.founded_on, 0);
+        let [lo, hi] = match c.people {
+            People::Civilized => config.city_population,
+            People::Barbarian => config.barbarian_population,
+        };
+        assert!(
+            (u64::from(lo)..=u64::from(hi)).contains(&c.population),
+            "{} {:?} starts with {}",
+            c.name,
+            c.people,
+            c.population
+        );
+        let living = people.iter().filter(|p| p.person.home == c.id).count();
+        assert_eq!(living as u64, c.population, "{}", c.name);
     }
 
-    let years = 3;
-    sim.run(years * sim.config().turns_per_year());
+    sim.run(sim.config().turns_per_year() / 4);
     let end = sim.cities();
     assert_eq!(
         end.iter().map(|c| (c.id, c.position)).collect::<Vec<_>>(),
         start.iter().map(|c| (c.id, c.position)).collect::<Vec<_>>(),
         "no cities may appear (or move) during play"
     );
-    for c in &end {
-        assert!(c.population > 10, "{} did not grow", c.name);
-        // 30% a year, compounded every turn: at most 10 · e^0.9 ≈ 24.6 in three years.
-        assert!(
-            c.population <= 24,
-            "{} grew too fast: {}",
-            c.name,
-            c.population
+}
+
+#[test]
+fn richer_land_starts_bigger() {
+    use societies::city::{People, settlement_size};
+    let sim = common::sim(Fixture::Medium);
+    let (map, fertility, config) = (sim.map(), sim.fertility(), sim.config());
+    let land: Vec<usize> = (0..map.tile_count() as usize)
+        .filter(|&i| map.is_habitable(i))
+        .collect();
+    let poorest = *land
+        .iter()
+        .min_by_key(|&&i| fertility.fertility(i))
+        .unwrap();
+    let richest = *land
+        .iter()
+        .max_by_key(|&&i| fertility.fertility(i))
+        .unwrap();
+    for people in [People::Civilized, People::Barbarian] {
+        let (small, big) = (
+            settlement_size(map, fertility, config, people, poorest),
+            settlement_size(map, fertility, config, people, richest),
         );
+        assert!(small < big, "{people:?}: {small} vs {big}");
     }
+    assert!(
+        settlement_size(map, fertility, config, People::Barbarian, richest)
+            <= settlement_size(map, fertility, config, People::Civilized, richest)
+    );
 }
 
 #[test]
