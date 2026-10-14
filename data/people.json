@@ -45,12 +45,28 @@
       "One entry per action. serves: how much a day of it satisfies each need (also how strongly that need draws people to it; food, family and esteem are satisfied by economy, life and status, so for them it is only the draw). duration_turns: how long it lasts (a turn is a quarter day, the waking day is 3 turns; longer actions are resumed each morning).",
       "Requirements: min_age; techs_any (knowing any one of these technology ids); land (the city has free land, or the person worked it yesterday); water (the city is on a river, lake or coast); unpartnered; parents (has children); settle_away (the city has no free land, few days of food, and the person has been hungry for a while). children: children may follow their mother in it.",
       "traits: leaning toward the action, added to its score in full for a trait of 255 and subtracted in full for 0 (128 is neutral).",
-      "urgent: a need at or above this urgency that was not urgent when the current action was chosen makes a person decide again at once. noise: the random part of every score, 0 to this. pressing_food: hunger at which a day counts toward settle_away.hungry_days."
+      "urgent: a need at or above this urgency that was not urgent when the current action was chosen makes a person decide again at once. noise: the random part of every score, 0 to this. pressing_food: hunger at which a day counts toward settle_away.hungry_days.",
+      "provision: people also work for the stores: with no food in store, food work scores as if they were this hungry (urgency); with reserve_days per head or more, not at all; linear in between. Nobody farms in a season when none of the city's fields grow.",
+      "organisation: how many people a city holds together: the largest 'people' of the levels whose techs_any it knows any of (none: every city). Kin-led villages split at a few hundred; ranks, temples, kings and writing hold more. Above its limit, each decision of an adult considers settling away with a chance of urge per mille per 1000 per mille of overflow (at most max_urge), and for those who do it scores pull per 1000 per mille more (at most max_pull), so the boldest leave first and a few at a time."
     ],
     "urgent": 850,
     "noise": 80,
     "pressing_food": 700,
     "settle_away": { "hungry_days": 7, "max_food_days": 2 },
+    "provision": { "reserve_days": 120, "urgency": 700 },
+    "organisation": {
+      "levels": [
+        { "name": "kin village", "people": 400 },
+        { "name": "chiefdom", "techs_any": ["ranked_society"], "people": 1200 },
+        { "name": "temple town", "techs_any": ["temple_economy", "taxation"], "people": 2500 },
+        { "name": "kingdom", "techs_any": ["kingship"], "people": 5000 },
+        { "name": "state", "techs_any": ["bureaucracy", "law_codes"], "people": 12000 }
+      ],
+      "urge": 100,
+      "max_urge": 150,
+      "pull": 150,
+      "max_pull": 100
+    },
     "catalog": {
       "idle": { "serves": { "fun": 60 }, "duration_turns": 3, "children": true },
       "sleep": { "serves": { "rest": 700, "warmth": 100 }, "duration_turns": 3, "children": true },
@@ -185,15 +201,15 @@
   "economy": {
     "territory_radius_km": 120,
     "territory_radius_km_note": "A city holds the tiles within this distance that no other city is nearer to, and always its own tile.",
-    "work_turns_per_day": 2,
-    "work_turns_per_day_note": "Turns (quarter days) of work that make a full day's work.",
-    "farm": { "catchment_km2": 80, "workers_per_100_km2": 1000, "daily_yield": 8000 },
-    "herd": { "catchment_km2": 700, "workers_per_100_km2": 40, "daily_yield": 4000 },
-    "forage": { "catchment_km2": 1250, "workers_per_100_km2": 8, "daily_yield": 3000 },
+    "work_turns_per_day": 3,
+    "work_turns_per_day_note": "Turns (quarter days) of work that make a full day's work: the three waking turns.",
+    "farm": { "catchment_km2": 80, "workers_per_100_km2": 600, "daily_yield": 3000 },
+    "herd": { "catchment_km2": 700, "workers_per_100_km2": 30, "daily_yield": 3500 },
+    "forage": { "catchment_km2": 1250, "workers_per_100_km2": 6, "daily_yield": 3000 },
     "land_work_note": "catchment_km2: land within walking distance that is worked (fields about 5 km around the village, herds about 15 km, foragers about 20 km). workers_per_100_km2: workers the best land (quality 1000) takes. daily_yield: food from a day's work on the best land, thousandths of a person-day (one adult's food for a day).",
     "fish": {
       "workers": { "river": 40, "lake": 60, "coast": 100 },
-      "daily_yield": 5000,
+      "daily_yield": 4500,
       "gear": ["fishing_nets", "dugout_canoe"],
       "without_gear": 600
     },
@@ -216,6 +232,14 @@
     "growing_season_note": "Fields grow in a season whose long-term mean is at least 5 C (hundredths) and which gets at least 60 mm of rain (tenths of a mm), or on a river or lake. The crop is harvested at the end of the last growing season.",
     "off_season": { "herd": 500, "forage": 400, "fish_frozen": 300, "freezing": 0 },
     "off_season_note": "Per mille of output outside the growing season (herds, foraging) and in seasons with a mean below freezing (fishing).",
+    "weather": {
+      "drought_wetness": 300, "drought_floor": 150, "irrigated_wetness": 500,
+      "flood": 100, "flood_crop_loss": 40,
+      "tolerance": 15, "cold_per_degree": 100, "heat_per_degree": 80, "heat_above": 320,
+      "frost": 0,
+      "herd_share": 500, "forage_share": 400
+    },
+    "weather_note": "Each turn's work against the weather of the day. Crops grow less in soil drier than drought_wetness per mille of capacity (down to drought_floor in bone-dry soil; fields on a river or lake count as at least irrigated_wetness), yield flood per mille on a flooded tile (and lose flood_crop_loss per mille of the standing crop each flooded day), nothing in a turn at or below frost (tenths of a degree C), and lose cold_per_degree per degree C colder than usual beyond tolerance (tenths), or heat_per_degree per degree warmer when the turn is also above heat_above. Herds and wild food feel herd_share and forage_share of what crops feel; fishing does not.",
     "storage": { "base_months": 4, "stored_loss": 30, "open_loss": 1000, "max_preservation": 900 },
     "storage_note": "Food up to (base_months + food_storage months) x 30 days per resident keeps well and loses stored_loss per 100 000 a day; the rest loses open_loss. preservation effects cut both, by at most max_preservation per mille.",
     "eating": { "child_age": 12, "child_ration": 600, "full_meal": 1000 },

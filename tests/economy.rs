@@ -502,3 +502,76 @@ fn free_land_is_fields_plus_pasture() {
     }
     assert!(split > 0, "no city farms or herds");
 }
+
+/// Food the city's farmers grow in ten days of its growing season, with
+/// the weather rules changed by `tune`.
+fn farm_ten_days(tune: impl Fn(&mut EconomyConfig)) -> u64 {
+    let (city, grows, _) = farming_city(&mut sim_on(0));
+    let mut sim = sim_on(first_day(grows) + 10);
+    sim.step();
+    tune(&mut sim.world_mut().resource_mut::<EconomyConfig>());
+    put_to_work(&mut sim, city, ActionKind::Farm);
+    days(&mut sim, 10);
+    larder(&mut sim, city).produced_milli
+}
+
+#[test]
+fn dry_soil_stunts_the_crops() {
+    let usual = farm_ten_days(|_| {});
+    // Every soil short of soaked counts as dry, and nothing is watered.
+    let parched = farm_ten_days(|c| {
+        c.weather.drought_wetness = 1001;
+        c.weather.drought_floor = 0;
+        c.weather.irrigated_wetness = 0;
+    });
+    assert!(usual > 0);
+    assert!(
+        parched * 10 < usual * 9,
+        "{parched} in drought, {usual} usually"
+    );
+}
+
+#[test]
+fn cold_and_heat_beyond_the_usual_cut_yields() {
+    let usual = farm_ten_days(|_| {});
+    // No tolerance at all, and every degree off costs a fifth.
+    let touchy = farm_ten_days(|c| {
+        c.weather.tolerance = 0;
+        c.weather.cold_per_degree = 200;
+        c.weather.heat_per_degree = 200;
+        c.weather.heat_above = i32::MIN;
+    });
+    assert!(touchy < usual, "{touchy} vs {usual}");
+}
+
+#[test]
+fn a_volcanic_winter_hurts_crops_most_and_fish_not_at_all() {
+    let mut sim = common::sim(Fixture::Small);
+    sim.run(4 * 100);
+    let config = EconomyConfig::builtin();
+    let tiles: Vec<_> = sim
+        .cities()
+        .iter()
+        .flat_map(|c| territory(&mut sim, c.id).tiles)
+        .collect();
+    let mean = |sim: &Simulation, work: Work| {
+        tiles
+            .iter()
+            .map(|t| u64::from(economy::weather_factor(&config, sim.climate(), work, t)))
+            .sum::<u64>()
+            / tiles.len() as u64
+    };
+    let before: Vec<u64> = Work::ALL.iter().map(|&w| mean(&sim, w)).collect();
+    sim.world_mut()
+        .resource_mut::<societies::climate::Climate>()
+        .set_volcanic_cooling(50, 50);
+    let after: Vec<u64> = Work::ALL.iter().map(|&w| mean(&sim, w)).collect();
+    let loss = |w: Work| before[w as usize] - after[w as usize];
+    assert!(loss(Work::Farm) > 100, "{before:?} -> {after:?}");
+    assert!(loss(Work::Herd) < loss(Work::Farm));
+    assert!(loss(Work::Forage) < loss(Work::Farm));
+    assert_eq!(
+        (before[Work::Fish as usize], after[Work::Fish as usize]),
+        (1000, 1000)
+    );
+}

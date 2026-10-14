@@ -73,9 +73,14 @@ These exist already with neutral defaults, so modules can be built in
 parallel:
 
 - **`economy::Outlook`** (a component on each city): `free_land` (split
-  into `free_farm` and `free_pasture`), `food_days` and `tools_available`.
-  Written by `economy` and `tools`, read by `decide`: Farm needs room on the
-  fields, Herd on pasture, and `SettleAway` no land at all.
+  into `free_farm` and `free_pasture`), `food_days`, `tools_available` and
+  `off_season`. Written by `economy` and `tools`, read by `decide`: Farm
+  needs room on the fields and a season in which they grow, Herd room on
+  pasture, and `SettleAway` no land at all (or a city over its organisation
+  limit); low `food_days` make food work urgent for everyone (providing).
+- **`economy::Larder::residents`** and the city's `Knowledge`: read by
+  `decide` for the organisation limit (`actions.organisation` in
+  `data/people.json`).
 - **`economy::Stores`** (a component on each city): `food`, owned by
   `economy`, and `items[ItemId]`, owned by `tools`.
 - **`status::StatusCatalog`** (a resource): `allows(status, action)` and
