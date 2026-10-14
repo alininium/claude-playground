@@ -111,6 +111,51 @@
     }
   },
   "life": {},
+
+  "needs": {},
+  "actions": {},
+  "life": {
+    "mortality": {
+      "infant_per_million": 300000,
+      "infant_decay_per_mille": 323,
+      "constant_per_million": 10000,
+      "senescent_age": 40,
+      "senescent_per_million": 3500,
+      "senescent_growth_per_mille": 1095,
+      "max_age": 110,
+      "mortality_note": "Siler hazards, yearly, per million: infant (mean over the first year, then x decay per year), constant, senescent (at senescent_age, x growth per year). Life expectancy at birth about 32, about 42 more years at 15.",
+      "disease_share": 700,
+      "hunger": { "threshold": 600, "extra_per_billion": 20000000 },
+      "cold": { "threshold": 600, "extra_per_billion": 10000000 },
+      "exposure_note": "Extra daily death chance, per billion, growing from 0 at threshold urgency to extra_per_billion at 1000: 2% a day when starving, 1% when freezing.",
+      "orphan_per_mille": 3000
+    },
+    "pairing": {
+      "female_age": [16, 45],
+      "male_age": [18, 65],
+      "daily_chance": 10,
+      "court_chance": 150,
+      "preferred_gap": 4,
+      "max_gap": 20,
+      "max_younger": 3,
+      "gap_penalty": 30,
+      "trait_penalty": 2000,
+      "court_bonus": 200,
+      "min_compatibility": 300
+    },
+    "fertility": {
+      "daily_chance_per_million": 2700,
+      "by_age": [[15, 300], [20, 850], [25, 1000], [30, 800], [35, 400], [40, 150], [45, 20], [50, 0]],
+      "by_age_note": "[lowest age, fecundity per mille of the peak].",
+      "pregnancy_days": 273,
+      "pregnancy_spread_days": 14,
+      "postpartum_days": 730,
+      "twins_per_mille": 15,
+      "maternal_death_per_mille": 10,
+      "male_births_per_mille": 512
+    },
+    "family": { "partner_daily": 100, "children_daily": 100, "care_per_turn": 150 }
+  },
   "status": {},
   "economy": {
     "territory_radius_km": 120,
