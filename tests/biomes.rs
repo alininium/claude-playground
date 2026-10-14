@@ -7,7 +7,7 @@ use societies::config::SimConfig;
 use societies::map::{Landform, Water};
 
 fn sim(seed: u64) -> Simulation {
-    Simulation::new(SimConfig {
+    common::generated(SimConfig {
         seed,
         map_width: 256,
         map_height: 128,

@@ -11,7 +11,7 @@ use societies::volcano::VolcanoConfig;
 
 #[test]
 fn the_journal_is_short_and_written_at_season_boundaries() {
-    let mut sim = common::sim(Fixture::Medium);
+    let mut sim = common::sim(Fixture::Small);
     let years = 30;
     sim.run(years * sim.config().turns_per_year());
     let days = sim.config().climate.days_per_year;
@@ -89,8 +89,9 @@ fn a_big_eruption_is_a_severe_entry_followed_by_a_volcanic_winter() {
 
 #[test]
 fn oscillation_episodes_escalate_without_repeating_levels() {
-    // A wild oscillation (3 °C typical) reaches the top levels quickly.
-    let mut sim = sim_with(Fixture::Medium, |c| {
+    // A wild oscillation (3 °C typical) reaches the top levels quickly. It
+    // is planet-wide, so the small world will do.
+    let mut sim = sim_with(Fixture::Small, |c| {
         c.climate.oscillation = OscillationConfig {
             amplitude_tenths: 30,
             ..OscillationConfig::default()

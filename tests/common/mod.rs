@@ -8,7 +8,9 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use societies::Simulation;
 use societies::config::SimConfig;
@@ -74,4 +76,37 @@ pub fn sim_with(fixture: Fixture, adjust: impl FnOnce(&mut SimConfig)) -> Simula
     let mut config = fixture.config();
     adjust(&mut config);
     Simulation::from_world(world(fixture), config)
+}
+
+/// A simulation on a freshly generated world (for tests about generation
+/// itself). Each world is generated once per test binary and shared:
+/// tests running in parallel that ask for the same world wait for the
+/// first one instead of generating it again. Runtime settings (cities,
+/// eruption rates, the oscillation) still come from `config`.
+pub fn generated(config: SimConfig) -> Simulation {
+    type Cache = Mutex<HashMap<String, Arc<OnceLock<WorldSave>>>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    // Only what shapes the world picks the cache entry.
+    let mut shape = SimConfig {
+        seed: config.seed,
+        map_width: config.map_width,
+        map_height: config.map_height,
+        terrain: config.terrain.clone(),
+        climate: config.climate.clone(),
+        ..SimConfig::default()
+    };
+    shape.climate.oscillation = Default::default();
+    shape.volcanoes.arcs_per_10k_tiles = config.volcanoes.arcs_per_10k_tiles;
+    shape.volcanoes.hotspots_per_10k_tiles = config.volcanoes.hotspots_per_10k_tiles;
+    let slot = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .entry(format!("{shape:?}"))
+        .or_default()
+        .clone();
+    let save = slot
+        .get_or_init(|| Simulation::generate_world(&shape))
+        .clone();
+    Simulation::from_world(save, config)
 }
