@@ -25,5 +25,23 @@
   "status": {},
   "economy": {},
   "tools": {},
-  "caravan": {}
+  "caravan": {
+    "min_adults": 5,
+    "min_adults_note": "Adults of one city who must choose to settle away on the same day for a caravan to leave; with their children that is a group of about a dozen, the size of a small band.",
+    "km_per_day": 20,
+    "km_per_day_note": "On open plains. Groups on foot with children, loads and herds make about 15-25 km a day.",
+    "terrain_cost": { "plains": 1000, "hills": 1500, "mountains": 3000 },
+    "terrain_cost_note": "Per mille of a tile's width: how much longer it takes to cross hills and mountains than plains.",
+    "river_crossing": 500,
+    "river_crossing_note": "Extra cost of entering a river tile (finding a ford, rafting), per mille of its width.",
+    "scout_radius_km": 1500,
+    "scout_radius_km_note": "How far ahead scouts and word of mouth reach. Must exceed the minimum distance between cities, or there is nothing to find.",
+    "min_site_score": 300,
+    "min_site_score_note": "Lowest site value (cradle score, or half the fertility of other settleable land) worth settling.",
+    "distance_penalty_per_100km": 30,
+    "max_days": 240,
+    "max_days_note": "After about eight months on the road the caravan gives up and goes home.",
+    "food_days": 60,
+    "food_days_note": "Most food taken along, in days per member; the rest stays in the stores."
+  }
 }

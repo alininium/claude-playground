@@ -26,7 +26,7 @@ cd "$(dirname "$0")/.."
 
 declare -A TARGETS=(
   [core]="--lib determinism save_load terrain cities technologies"
-  [people]="people"
+  [people]="people caravans"
   [climate]="climate climate_dynamics biomes"
   [events]="journal volcanoes"
 )
