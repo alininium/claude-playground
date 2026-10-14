@@ -225,6 +225,18 @@ figures (shares by true area; three 256×128 worlds):
   creation (16% → 20% of land in figure 4).
 - The map does not wrap east-west.
 
+## People: needs and decisions (`src/people/needs.rs`, `src/people/decide.rs`)
+
+| | |
+|---|---|
+| Established | **Utility-based action selection** (as in agent-based models of foraging societies and in game AI): each option is scored by how much it would relieve the agent's current needs, and the best one is taken. Needs as distinct drives of unequal urgency follow **Maslow** (1943), without his strict hierarchy: hunger simply grows fastest. |
+| Established | The **Big Five** personality traits (Costa & McCrae) predict how people spend their time: extraverts seek company, conscientious people work steadily, open people make things; boldness (risk appetite) predicts migration. |
+| Established | People in pre-industrial societies sleep about 7 hours a night and work, by modern standards, few hours a day, with frequent rest days (Sahlins 1972; Yetish et al. 2015 for sleep in forager societies). Children in foraging societies stay with their mothers and join many of their activities. |
+| Established | Cold stress grows below a comfort temperature roughly in proportion to how far below it is (the logic of **degree-days**). Migration out of a place is pushed by land shortage and hunger (Lee 1966's push factors), and those who leave are the bolder. |
+| Our own | **Needs** (urgency 0–1000) change once a day, at nightfall: daily growth of food 300 (about three days to desperation), company 60, fun 50, esteem 15, family 10, safety 10; rest 400 for a waking day, of which a night's sleep takes back 360 (so about a rest day every week or two). Warmth grows 12 a day for each °C the night on the home tile is below 12 °C, plus 10 in autumn and 40 in winter (as felt in the city's hemisphere); a night in shelter takes back 60. Safety grows 150 more per day for 60 days after a disaster killed people in the city. The day's action, for the part of the day it was held, satisfies rest, warmth, safety, company and fun by its catalog amounts; food, family and esteem are satisfied by economy, life and status. |
+| Our own | **Scores**: Σ urgency × (how much a day of the action serves the need) / 1000, plus a leaning per trait (weight × (trait − 128) / 128, e.g. extraversion 300 for socializing, boldness 450 for settling away), plus the status leaning, plus a random 0–80 from the person's own stream (one draw per decision). Ties go to the earlier action. **Requirements**: minimum age; knowing one of a list of technologies (foraging; cereals or roots to farm; livestock to herd; rafts, nets or canoes to fish); free land for farming and herding (unless the person already works it); a river, lake or coast to fish; no partner to court; children of one's own to care for children; and for settling away, no free land, at most 2 days of food in store, and pressing hunger (700+) seven nights in a row. |
+| Our own | **Schedule**: people decide when their action ends (actions last the waking day, 3 turns; building 7 turns, taken up again each morning) or when a need reaches 850 that was not urgent when they chose. Night is sleep for everyone. Children under the founding adult age never decide: they join their mother if her action is open to children (idling, resting, sleeping, socializing, worship) and play otherwise. People travelling with a caravan are left alone. |
+
 ## Figures
 
 From `examples/figures.rs` + `tools/plot_figures.py` (seed 3, 256×128, 50

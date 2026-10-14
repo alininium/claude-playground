@@ -19,8 +19,97 @@
     "mother_age_at_birth": [15, 42],
     "initial_needs_max": 300
   },
-  "needs": {},
-  "actions": {},
+  "needs": {
+    "notes": [
+      "Urgency runs from 0 (satisfied) to 1000 (desperate). Needs are brought up to date once a day, at nightfall: they grow, the day's action satisfies some of them, then the night's sleep.",
+      "growth_per_day: how much each need grows in a day. Food is satisfied by eating (economy), family by partners and children (life), esteem by status (status); this module only grows them.",
+      "rest_awake_per_day: tiredness from a full waking day; night_sleep: what a night in shelter by the fire satisfies.",
+      "warmth: below comfort_tenths (tenths of a degree C, at night on the home tile) warmth grows per_degree_per_day for every degree; season_extra_per_day adds damp and short days per season (spring, summer, autumn, winter, as felt in the city's hemisphere).",
+      "safety: disaster_per_day extra growth while a disaster killed people in the city within the last disaster_days days."
+    ],
+    "growth_per_day": {
+      "food": 300, "rest": 0, "warmth": 0, "safety": 10,
+      "company": 60, "fun": 50, "esteem": 15, "family": 10
+    },
+    "rest_awake_per_day": 400,
+    "night_sleep": { "rest": 360, "warmth": 60 },
+    "warmth": {
+      "comfort_tenths": 120,
+      "per_degree_per_day": 12,
+      "season_extra_per_day": [0, 0, 10, 40]
+    },
+    "safety": { "disaster_per_day": 150, "disaster_days": 60 }
+  },
+  "actions": {
+    "notes": [
+      "One entry per action. serves: how much a day of it satisfies each need (also how strongly that need draws people to it; food, family and esteem are satisfied by economy, life and status, so for them it is only the draw). duration_turns: how long it lasts (a turn is a quarter day, the waking day is 3 turns; longer actions are resumed each morning).",
+      "Requirements: min_age; techs_any (knowing any one of these technology ids); land (the city has free land, or the person worked it yesterday); water (the city is on a river, lake or coast); unpartnered; parents (has children); settle_away (the city has no free land, few days of food, and the person has been hungry for a while). children: children may follow their mother in it.",
+      "traits: leaning toward the action, added to its score in full for a trait of 255 and subtracted in full for 0 (128 is neutral).",
+      "urgent: a need at or above this urgency that was not urgent when the current action was chosen makes a person decide again at once. noise: the random part of every score, 0 to this. pressing_food: hunger at which a day counts toward settle_away.hungry_days."
+    ],
+    "urgent": 850,
+    "noise": 80,
+    "pressing_food": 700,
+    "settle_away": { "hungry_days": 7, "max_food_days": 2 },
+    "catalog": {
+      "idle": { "serves": { "fun": 60 }, "duration_turns": 3, "children": true },
+      "sleep": { "serves": { "rest": 700, "warmth": 100 }, "duration_turns": 3, "children": true },
+      "rest": {
+        "serves": { "rest": 350, "fun": 100, "warmth": 150 }, "duration_turns": 3, "children": true,
+        "traits": { "conscientiousness": -60 }
+      },
+      "forage": {
+        "serves": { "food": 800 }, "duration_turns": 3, "min_age": 12, "techs_any": ["foraging"],
+        "traits": { "conscientiousness": 120 }
+      },
+      "farm": {
+        "serves": { "food": 900 }, "duration_turns": 3, "min_age": 12, "land": true,
+        "techs_any": ["cereal_cultivation", "root_crops"],
+        "traits": { "conscientiousness": 160, "openness": -40 }
+      },
+      "herd": {
+        "serves": { "food": 850 }, "duration_turns": 3, "min_age": 12, "land": true,
+        "techs_any": ["small_livestock", "cattle", "pastoral_nomadism"],
+        "traits": { "conscientiousness": 120, "boldness": 40 }
+      },
+      "fish": {
+        "serves": { "food": 820 }, "duration_turns": 3, "min_age": 12, "water": true,
+        "techs_any": ["rafts", "fishing_nets", "dugout_canoe"],
+        "traits": { "conscientiousness": 100, "boldness": 40 }
+      },
+      "craft": {
+        "serves": { "esteem": 250, "fun": 150 }, "duration_turns": 3, "min_age": 14,
+        "techs_any": ["stone_tools", "pottery", "weaving", "copper_smelting"],
+        "traits": { "openness": 200, "conscientiousness": 100 }
+      },
+      "build": {
+        "serves": { "warmth": 350, "safety": 250, "esteem": 100 }, "duration_turns": 7, "min_age": 14,
+        "techs_any": ["villages", "mudbrick", "carpentry"],
+        "traits": { "conscientiousness": 140 }
+      },
+      "socialize": {
+        "serves": { "company": 500, "fun": 400 }, "duration_turns": 3, "children": true,
+        "traits": { "extraversion": 300, "agreeableness": 80 }
+      },
+      "worship": {
+        "serves": { "safety": 500, "company": 150 }, "duration_turns": 3, "children": true,
+        "techs_any": ["ancestor_cults", "organized_religion"],
+        "traits": { "neuroticism": 120, "conscientiousness": 40, "openness": -40 }
+      },
+      "court": {
+        "serves": { "family": 600, "company": 200, "fun": 100 }, "duration_turns": 3, "min_age": 15,
+        "unpartnered": true, "traits": { "extraversion": 120, "boldness": 60 }
+      },
+      "care_for_children": {
+        "serves": { "family": 450, "company": 100 }, "duration_turns": 3, "min_age": 14, "parents": true,
+        "traits": { "agreeableness": 150 }
+      },
+      "settle_away": {
+        "serves": { "food": 700 }, "duration_turns": 3, "min_age": 16, "settle_away": true,
+        "traits": { "boldness": 450, "openness": 80, "neuroticism": -100 }
+      }
+    }
+  },
   "life": {},
   "status": {},
   "economy": {},
