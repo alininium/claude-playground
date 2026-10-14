@@ -24,6 +24,52 @@
   "life": {},
   "status": {},
   "economy": {},
-  "tools": {},
+  "tools": {
+    "items": [
+      {
+        "id": "stone_tools",
+        "name": "Stone tools",
+        "requires_any": ["stone_tools"],
+        "labour_days": 1,
+        "durability_days": 90,
+        "work": { "forage": 1100, "farm": 1100, "herd": 1050, "fish": 1050, "build": 1150, "craft": 1100 }
+      },
+      {
+        "id": "flint_sickle",
+        "name": "Flint sickle",
+        "requires_any": ["cereal_cultivation"],
+        "labour_days": 1,
+        "durability_days": 120,
+        "work": { "forage": 1100, "farm": 1300 }
+      },
+      {
+        "id": "fishing_gear",
+        "name": "Nets, lines and hooks",
+        "requires_any": ["fishing_nets"],
+        "labour_days": 3,
+        "durability_days": 120,
+        "work": { "fish": 1400 }
+      },
+      {
+        "id": "copper_tools",
+        "name": "Copper tools",
+        "requires_any": ["native_copper", "copper_smelting"],
+        "labour_days": 4,
+        "durability_days": 300,
+        "work": { "forage": 1150, "farm": 1200, "herd": 1100, "fish": 1100, "build": 1300, "craft": 1250 }
+      },
+      {
+        "id": "bronze_tools",
+        "name": "Bronze tools",
+        "requires_any": ["arsenical_bronze", "tin_bronze"],
+        "labour_days": 5,
+        "durability_days": 600,
+        "work": { "forage": 1200, "farm": 1300, "herd": 1150, "fish": 1150, "build": 1450, "craft": 1400 }
+      }
+    ],
+    "items_note": "Listed from least to most valued: a crafter makes the last item they know that the city is short of. requires_any: technologies, any one of which lets a person make it. labour_days: person-days of work for one. durability_days: working days before it breaks. work: per mille output with the tool, by action (missing: 1000, no help). Ores are not on the map yet, so metal tools need only the knowledge.",
+    "reserve_per_mille": 100,
+    "reserve_note": "A city counts as short of an item while its stores hold fewer than this share (per mille) of the workers whose work it helps."
+  },
   "caravan": {}
 }

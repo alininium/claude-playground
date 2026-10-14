@@ -225,6 +225,15 @@ figures (shares by true area; three 256×128 worlds):
   creation (16% → 20% of land in figure 4).
 - The map does not wrap east-west.
 
+## People: tools (`src/tools.rs`)
+
+| | |
+|---|---|
+| Established | Ground and flaked stone tools were the everyday kit of the first farmers; harvesting with flint-bladed sickles was several times faster than stripping by hand (Harlan, 1967, reaping wild einkorn). Nets, lines and hooks were in use long before farming. Copper tools appear in the 5th millennium BCE (Varna, Mehrgarh, Mesopotamia), first hammered from native copper and then smelted and cast; arsenical and tin bronze followed and were harder and kept an edge longer. |
+| Established | Tree-felling experiments find metal axes cutting several times faster than stone ones (Saraydar and Shimada, 1971; Mathieu and Meyer, 1997), while for most other work the gain from a better tool is much smaller. |
+| Our own | **Catalog** (`tools` in `data/people.json`), listed from least to most valued: stone tools (1 person-day to make, last 90 working days), flint sickle (needs cereal cultivation; 1 day, 120 days), fishing gear (needs fishing nets; 3 days, 120 days), copper tools (native copper or copper smelting; 4 days, 300 days), bronze tools (arsenical or tin bronze; 5 days, 600 days). **Output with the tool** (per mille, by work): stone 1050–1150, copper 1100–1300, bronze 1150–1450, the most for building and the least for herding and fishing; sickle 1300 for farming; fishing gear 1400 for fishing. Ores are not on the map yet, so metal tools need only the knowledge. |
+| Our own | **The day** is counted at midday: whoever is foraging, farming, herding, fishing, building or crafting then has worked that day (people away with a caravan do nothing). City by city, in id order, a worker whose tool does not help with today's work takes the best one in the stores for it (putting theirs back, wear forgotten), and the tool they use wears by `1000 / durability` a day (the remainder spread by day number, so a tool lasts exactly its durability in working days) and is thrown away when broken. **Crafters** then put a day's labour (times their own tool's multiplier for crafting) into an item, pooled per city and item so half-done work carries over. Each makes the most valued item they personally know how to make that the city is short of: short means fewer in the stores (counting better items that do the same main job as well) than 10% of the workers it would help. If nothing is short, they make the most valued item anyone working there could use. Knowing copper smelting makes someone a smith in effect; no status is needed. |
+
 ## Figures
 
 From `examples/figures.rs` + `tools/plot_figures.py` (seed 3, 256×128, 50
