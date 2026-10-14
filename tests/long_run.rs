@@ -22,7 +22,12 @@ struct Year {
 /// returns one sample per year (taken at the start of each year).
 fn run(years: u64, seed: u64) -> Vec<Year> {
     let _ = seed;
-    let mut sim = common::sim(common::Fixture::Small);
+    // The climate's long-term stability, without people: a millennium of a
+    // growing population is a different (and much slower) test.
+    let mut sim = common::sim_with(common::Fixture::Small, |c| {
+        c.city_population = [0, 0];
+        c.barbarian_population = [0, 0];
+    });
     let tpy = sim.config().turns_per_year();
     let n = sim.map().tile_count() as usize;
     let area: Vec<i64> = (0..n)
