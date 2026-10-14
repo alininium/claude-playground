@@ -26,7 +26,7 @@ cd "$(dirname "$0")/.."
 
 declare -A TARGETS=(
   [core]="--lib determinism save_load terrain cities technologies"
-  [people]="people decisions economy"
+  [people]="people decisions economy tools"
   [climate]="climate climate_dynamics biomes"
   [events]="journal volcanoes"
 )
@@ -36,6 +36,8 @@ categories_for() {
   case "$1" in
     src/people/* | src/economy.rs | src/tools.rs | src/caravan.rs | data/people.json \
       | tests/people.rs | tests/decisions.rs) echo people ;;
+
+      | tests/people.rs | tests/tools.rs) echo people ;;
     src/climate/* | src/biome.rs | src/fertility.rs | src/map/*) echo people climate events ;;
     src/volcano.rs | src/journal.rs | src/events.rs) echo events ;;
     src/lib.rs | src/config.rs | src/time.rs | src/rng.rs | Cargo.toml | Cargo.lock \

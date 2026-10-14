@@ -353,6 +353,7 @@ impl Simulation {
         let mut h = Fnv1a(self.world_digest());
         self.cities_digest(&mut h);
         people::digest(&mut self.world, &mut |v| h.write_u64(v));
+        tools::digest(&mut self.world, &mut |v| h.write_u64(v));
         h.finish()
     }
 
