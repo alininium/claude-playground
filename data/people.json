@@ -112,7 +112,46 @@
   },
   "life": {},
   "status": {},
-  "economy": {},
+  "economy": {
+    "territory_radius_km": 120,
+    "territory_radius_km_note": "A city holds the tiles within this distance that no other city is nearer to, and always its own tile.",
+    "work_turns_per_day": 2,
+    "work_turns_per_day_note": "Turns (quarter days) of work that make a full day's work.",
+    "farm": { "catchment_km2": 80, "workers_per_100_km2": 1000, "daily_yield": 8000 },
+    "herd": { "catchment_km2": 700, "workers_per_100_km2": 40, "daily_yield": 4000 },
+    "forage": { "catchment_km2": 1250, "workers_per_100_km2": 8, "daily_yield": 3000 },
+    "land_work_note": "catchment_km2: land within walking distance that is worked (fields about 5 km around the village, herds about 15 km, foragers about 20 km). workers_per_100_km2: workers the best land (quality 1000) takes. daily_yield: food from a day's work on the best land, thousandths of a person-day (one adult's food for a day).",
+    "fish": {
+      "workers": { "river": 40, "lake": 60, "coast": 100 },
+      "daily_yield": 5000,
+      "gear": ["fishing_nets", "dugout_canoe"],
+      "without_gear": 600
+    },
+    "fish_note": "Fishers each kind of water within the territory takes; without nets or boats they catch without_gear per mille.",
+    "farm_requires_any": ["cereal_cultivation", "root_crops"],
+    "herd_requires_any": ["small_livestock"],
+    "unfarmable_landforms": ["Mountains"],
+    "unfarmable_biomes": ["TropicalRainforest", "Tundra", "Alpine", "IceSheet"],
+    "unfarmable_note": "Farmed only with a technology whose 'farmable' effect applies there (yams in rainforest, potatoes or terraces in mountains).",
+    "pasture": {
+      "Grassland": 1000, "Savanna": 900, "MediterraneanShrubland": 700, "ColdDesert": 400,
+      "HotDesert": 200, "Tundra": 300, "Alpine": 500, "TemperateForest": 500,
+      "TemperateRainforest": 300, "BorealForest": 200, "TropicalSeasonalForest": 400,
+      "TropicalRainforest": 100, "Wetland": 400
+    },
+    "pasture_note": "Grazing quality of each biome, per mille.",
+    "forage_floor": 300,
+    "forage_floor_note": "Foraging quality is this plus the rest scaled by fertility: game and wild plants are found even on poor land.",
+    "growing_season": { "min_temperature": 500, "min_precipitation": 600 },
+    "growing_season_note": "Fields grow in a season whose long-term mean is at least 5 C (hundredths) and which gets at least 60 mm of rain (tenths of a mm), or on a river or lake. The crop is harvested at the end of the last growing season.",
+    "off_season": { "herd": 500, "forage": 400, "fish_frozen": 300, "freezing": 0 },
+    "off_season_note": "Per mille of output outside the growing season (herds, foraging) and in seasons with a mean below freezing (fishing).",
+    "storage": { "base_months": 4, "stored_loss": 30, "open_loss": 1000, "max_preservation": 900 },
+    "storage_note": "Food up to (base_months + food_storage months) x 30 days per resident keeps well and loses stored_loss per 100 000 a day; the rest loses open_loss. preservation effects cut both, by at most max_preservation per mille.",
+    "eating": { "child_age": 12, "child_ration": 600, "full_meal": 1000 },
+    "eating_note": "Children below child_age eat child_ration per mille of an adult's food. A full day's food lowers the Food need by full_meal; a short ration by that share.",
+    "initial_food_days": 120
+  },
   "tools": {},
   "caravan": {}
 }
