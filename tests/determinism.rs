@@ -36,6 +36,39 @@ fn same_seed_produces_identical_history() {
 }
 
 #[test]
+fn any_number_of_threads_gives_the_same_world_and_history() {
+    // Split even this small map: the world must not depend on how the
+    // per-tile work is divided (3 threads give uneven chunks).
+    societies::parallel::set_min_tiles_per_thread(300);
+    let generate = |threads| {
+        Simulation::generate_world_with_threads(&config(77), threads)
+            .to_bytes()
+            .unwrap()
+    };
+    let one = generate(1);
+    for threads in [3, 4] {
+        assert!(
+            generate(threads) == one,
+            "world differs on {threads} threads"
+        );
+    }
+
+    let run = |threads| {
+        let save = societies::save::WorldSave::from_bytes(&one).unwrap();
+        let mut sim = Simulation::from_world(save, config(77));
+        sim.set_threads(threads);
+        (0..200)
+            .map(|_| {
+                sim.step();
+                sim.state_digest()
+            })
+            .collect::<Vec<_>>()
+    };
+    let one = run(1);
+    assert_eq!(run(3), one);
+}
+
+#[test]
 fn different_seeds_diverge() {
     let mut a = Simulation::new(config(1));
     let mut b = Simulation::new(config(2));

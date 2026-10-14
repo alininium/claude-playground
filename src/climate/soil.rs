@@ -18,6 +18,7 @@
 //! overflow it.
 
 use crate::map::{Map, Soil, Water};
+use crate::parallel::{self, Threads};
 
 /// Flood when discharge exceeds bankfull × this (per mille).
 const FLOOD_FACTOR: u64 = 2000;
@@ -98,36 +99,62 @@ impl SoilWater {
         daylight: &[u16],
         quarters: u32,
         days_per_year: u32,
+        threads: Threads,
     ) {
         let q = i64::from(quarters);
         let per_year = i64::from(days_per_year.max(1)) * 4;
-        for i in 0..self.water.len() {
-            let water = map.tiles()[i].water;
-            if water == Water::Ocean {
-                continue;
+        let c = parallel::chunk_len(self.water.len(), threads, parallel::min_tiles_per_thread());
+        let inputs = map
+            .tiles()
+            .chunks(c)
+            .zip(temperatures.chunks(c))
+            .zip(rain.chunks(c))
+            .zip(melt.chunks(c))
+            .zip(daylight.chunks(c));
+        let parts = self
+            .water
+            .chunks_mut(c)
+            .zip(self.runoff.chunks_mut(c))
+            .zip(self.capacity.chunks(c))
+            .zip(inputs);
+        parallel::run(parts, |(((water, runoff), capacity), inputs)| {
+            let ((((tiles, temperatures), rain), melt), daylight) = inputs;
+            let rows = water
+                .iter_mut()
+                .zip(runoff)
+                .zip(capacity)
+                .zip(tiles)
+                .zip(temperatures)
+                .zip(rain)
+                .zip(melt)
+                .zip(daylight);
+            for (((((((water, runoff), &capacity), tile), &t), &rain), &melt), &daylight) in rows {
+                if tile.water == Water::Ocean {
+                    continue;
+                }
+                let t = i64::from(t);
+                let rain_in = if t > 10 {
+                    i64::from(rain) * 10 * q / per_year
+                } else {
+                    0
+                };
+                let input = rain_in + i64::from(melt);
+                let capacity = i64::from(capacity);
+                if capacity == 0 {
+                    *runoff = runoff.saturating_add(input as u32);
+                    continue;
+                }
+                let pet = t.max(0) * i64::from(daylight) * q / 14_400;
+                let mut w = i64::from(*water) + input;
+                let aet = pet * w.min(capacity * 7 / 10) / (capacity * 7 / 10).max(1);
+                w = (w - aet).max(0);
+                if w > capacity {
+                    *runoff = runoff.saturating_add((w - capacity) as u32);
+                    w = capacity;
+                }
+                *water = w as u32;
             }
-            let t = i64::from(temperatures[i]);
-            let rain_in = if t > 10 {
-                i64::from(rain[i]) * 10 * q / per_year
-            } else {
-                0
-            };
-            let input = rain_in + i64::from(melt[i]);
-            let capacity = i64::from(self.capacity[i]);
-            if capacity == 0 {
-                self.runoff[i] = self.runoff[i].saturating_add(input as u32);
-                continue;
-            }
-            let pet = t.max(0) * i64::from(daylight[i]) * q / 14_400;
-            let mut w = i64::from(self.water[i]) + input;
-            let aet = pet * w.min(capacity * 7 / 10) / (capacity * 7 / 10).max(1);
-            w = (w - aet).max(0);
-            if w > capacity {
-                self.runoff[i] = self.runoff[i].saturating_add((w - capacity) as u32);
-                w = capacity;
-            }
-            self.water[i] = w as u32;
-        }
+        });
     }
 
     /// Routes the day's runoff down the rivers and flags floods.

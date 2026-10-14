@@ -28,7 +28,7 @@ pub mod decide;
 pub mod founding;
 pub mod life;
 pub mod needs;
-pub mod parallel;
+pub use crate::parallel;
 pub mod rng;
 pub mod status;
 

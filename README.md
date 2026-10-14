@@ -320,6 +320,11 @@ that way, every system must:
 - Run on the single-threaded executor, in the explicit `.chain()` order defined
   in `Simulation::from_world` (`bevy_ecs`'s `multi_threaded` feature is
   disabled).
+- Split work across threads only through `parallel` (`for_each`, `run`),
+  where each person or tile writes only itself and reads shared data, so the
+  result is the same on any number of threads. Generation and the climate's
+  per-tile steps use all cores by default; set `SOCIETIES_THREADS=1` to run
+  on one.
 - Never let ECS query iteration order affect outcomes — sort by a stable
   simulation id (e.g. `CityId`, `VolcanoId`) before drawing random numbers or
   breaking ties.

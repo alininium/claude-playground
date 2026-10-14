@@ -5,6 +5,8 @@
 //!
 //! - All randomness comes from the one [`rng::SimRng`] resource.
 //! - Systems run on the single-threaded executor, in an explicit chained order.
+//!   Work inside a system or world generation may be split across threads
+//!   only through [`parallel`], where each person or tile writes only itself.
 //! - Never rely on query iteration order when it affects the outcome
 //!   (RNG draws, tie-breaks, ...): sort by a stable id such as [`city::CityId`].
 //! - No floating point in simulation state; use integer / fixed-point math.
@@ -20,6 +22,7 @@ pub mod events;
 pub mod fertility;
 pub mod journal;
 pub mod map;
+pub mod parallel;
 pub mod people;
 pub mod render;
 pub mod rng;
@@ -83,6 +86,13 @@ impl Simulation {
 
     /// Generates a world (geography, climate, volcanoes; no cities).
     pub fn generate_world(config: &SimConfig) -> WorldSave {
+        Self::generate_world_with_threads(config, parallel::Threads::default().0)
+    }
+
+    /// [`Simulation::generate_world`] on up to `threads` threads. The world
+    /// is the same for any number.
+    pub fn generate_world_with_threads(config: &SimConfig, threads: usize) -> WorldSave {
+        let threads = parallel::Threads(threads.max(1));
         let mut rng = SimRng::from_seed(config.seed);
         let map = Map::generate(
             config.map_width,
@@ -90,7 +100,7 @@ impl Simulation {
             &config.terrain,
             &mut rng,
         );
-        let climate = Climate::new(&map, &config.climate, &mut rng);
+        let climate = Climate::new(&map, &config.climate, &mut rng, threads);
         let (volcanism, volcanoes) = volcano::place_volcanoes(config, &map, &mut rng);
         let biomes = Biomes::new(&map, &climate, config);
         let fertility = Fertility::new(&map, &climate, &biomes, &volcanism, &mut rng);
@@ -309,11 +319,11 @@ impl Simulation {
         people::people(&mut self.world)
     }
 
-    /// How many threads per-person work may use. Results are the same for
-    /// any number.
+    /// How many threads per-person and per-tile work may use. Results are
+    /// the same for any number.
     pub fn set_threads(&mut self, threads: usize) {
         self.world
-            .insert_resource(people::parallel::Threads(threads.max(1)));
+            .insert_resource(parallel::Threads(threads.max(1)));
     }
 
     pub fn events(&self) -> &EventLog {

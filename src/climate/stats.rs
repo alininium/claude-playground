@@ -10,6 +10,8 @@
 //! normals change slowly, so things that depend on them (vegetation
 //! biomes) do not flicker with every warm or cold year.
 
+use crate::parallel::{self, Threads};
+
 /// A tile's long-term climate.
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
@@ -138,21 +140,47 @@ impl YearStats {
         &mut self,
         temperatures: &[i16],
         precipitation: &[u16],
-        wetness: impl Fn(usize) -> u32,
+        wetness: impl Fn(usize) -> u32 + Sync,
         quarters: u32,
         season: usize,
+        threads: Threads,
     ) {
         let q = i64::from(quarters);
-        for (i, (&t, &p)) in temperatures.iter().zip(precipitation).enumerate() {
-            self.temperature[i][season] += i64::from(t) * q;
-            self.precipitation[i][season] += u64::from(p) * u64::from(quarters);
-            if t > 50 {
-                self.growing[i] += (i32::from(t) - 50) as u32 * quarters;
-                // Soil wetness counts while it is warm enough to grow.
-                self.wetness[i] += u64::from(wetness(i)) * u64::from(quarters);
-                self.growing_quarters[i] += quarters;
+        let c = parallel::chunk_len(
+            temperatures.len(),
+            threads,
+            parallel::min_tiles_per_thread(),
+        );
+        let parts = self
+            .temperature
+            .chunks_mut(c)
+            .zip(self.precipitation.chunks_mut(c))
+            .zip(self.growing.chunks_mut(c))
+            .zip(self.wetness.chunks_mut(c))
+            .zip(self.growing_quarters.chunks_mut(c))
+            .zip(temperatures.chunks(c).zip(precipitation.chunks(c)))
+            .enumerate();
+        parallel::run(parts, |(part, (sums, (temperatures, precipitation)))| {
+            let ((((temp, prec), growing), wet), growing_q) = sums;
+            let rows = temp
+                .iter_mut()
+                .zip(prec)
+                .zip(growing)
+                .zip(wet)
+                .zip(growing_q)
+                .zip(temperatures.iter().zip(precipitation))
+                .enumerate();
+            for (k, (((((temp, prec), growing), wet), growing_q), (&t, &p))) in rows {
+                temp[season] += i64::from(t) * q;
+                prec[season] += u64::from(p) * u64::from(quarters);
+                if t > 50 {
+                    *growing += (i32::from(t) - 50) as u32 * quarters;
+                    // Soil wetness counts while it is warm enough to grow.
+                    *wet += u64::from(wetness(part * c + k)) * u64::from(quarters);
+                    *growing_q += quarters;
+                }
             }
-        }
+        });
         self.quarter_days[season] += quarters;
     }
 
@@ -161,24 +189,35 @@ impl YearStats {
     pub(crate) fn record_day(
         &mut self,
         night: &[i16],
-        flooding: impl Fn(usize) -> bool,
+        flooding: impl Fn(usize) -> bool + Sync,
         season: usize,
+        threads: Threads,
     ) {
-        for (i, (run, &t)) in self.frost.iter_mut().zip(night).enumerate() {
-            if t > 0 {
-                run.current += 1;
-            } else {
-                if !run.had_frost {
-                    run.prefix = run.current;
-                    run.had_frost = true;
+        let c = parallel::chunk_len(night.len(), threads, parallel::min_tiles_per_thread());
+        let parts = self
+            .frost
+            .chunks_mut(c)
+            .zip(self.flood_days.chunks_mut(c))
+            .zip(night.chunks(c))
+            .enumerate();
+        parallel::run(parts, |(part, ((frost, flood_days), night))| {
+            let rows = frost.iter_mut().zip(flood_days).zip(night).enumerate();
+            for (k, ((run, floods), &t)) in rows {
+                if t > 0 {
+                    run.current += 1;
+                } else {
+                    if !run.had_frost {
+                        run.prefix = run.current;
+                        run.had_frost = true;
+                    }
+                    run.longest = run.longest.max(run.current);
+                    run.current = 0;
                 }
-                run.longest = run.longest.max(run.current);
-                run.current = 0;
+                if flooding(part * c + k) {
+                    floods[season] += 1;
+                }
             }
-            if flooding(i) {
-                self.flood_days[i][season] += 1;
-            }
-        }
+        });
         self.days += 1;
     }
 
@@ -298,7 +337,7 @@ mod tests {
     fn first_year_sets_normals_then_they_move_slowly() {
         let mut stats = YearStats::new(1);
         for season in 0..4 {
-            stats.accumulate(&[100], &[1000], |_| 1000, 364, season);
+            stats.accumulate(&[100], &[1000], |_| 1000, 364, season, Threads(1));
         }
         stats.end_year(364);
         assert_eq!(stats.normals[0].mean, 1000);
@@ -307,7 +346,7 @@ mod tests {
 
         // A much warmer year moves the normal a tenth of the way.
         for season in 0..4 {
-            stats.accumulate(&[300], &[1000], |_| 1000, 364, season);
+            stats.accumulate(&[300], &[1000], |_| 1000, 364, season, Threads(1));
         }
         stats.end_year(364);
         assert_eq!(stats.normals[0].mean, 1200);
@@ -320,13 +359,13 @@ mod tests {
         // frost-free season runs from late in the year into the next.
         for day in 0..364 {
             let night = if (150..200).contains(&day) { -20 } else { 30 };
-            stats.record_day(&[night], |_| false, 0);
+            stats.record_day(&[night], |_| false, 0, Threads(1));
         }
         stats.end_year(364);
         assert_eq!(stats.frost_free_last_year[0], 364 - 50);
 
         for _ in 0..364 {
-            stats.record_day(&[30], |_| false, 0);
+            stats.record_day(&[30], |_| false, 0, Threads(1));
         }
         stats.end_year(364);
         assert_eq!(stats.frost_free_last_year[0], 364, "no frost at all");
