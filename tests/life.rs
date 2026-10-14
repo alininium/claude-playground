@@ -26,6 +26,21 @@ fn entity_of(sim: &mut Simulation, id: PersonId) -> Entity {
 /// Runs `days` days; before each, sets everyone's Food and Warmth urgency
 /// to `food` and `warmth`, so other modules cannot change the conditions.
 fn run_days(sim: &mut Simulation, days: u64, food: u16, warmth: u16) {
+    if food > 0 {
+        // Hunger has to last: nobody may find or eat food meanwhile.
+        let world = sim.world_mut();
+        let mut res = world.resource_mut::<societies::economy::EconomyConfig>();
+        let config = &mut *res;
+        config.initial_food_days = 0;
+        for work in [&mut config.farm, &mut config.herd, &mut config.forage] {
+            work.daily_yield = 0;
+        }
+        config.fish.daily_yield = 0;
+        let mut q = world.query::<&mut societies::economy::Stores>();
+        for mut stores in q.iter_mut(world) {
+            stores.food = 0;
+        }
+    }
     for _ in 0..days {
         let mut q = sim.world_mut().query::<&mut Needs>();
         for mut needs in q.iter_mut(sim.world_mut()) {

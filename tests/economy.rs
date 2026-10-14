@@ -30,6 +30,10 @@ fn days(sim: &mut Simulation, n: u64) {
 fn put_to_work(sim: &mut Simulation, city: CityId, action: ActionKind) {
     let (turn, tpy) = (sim.turn(), sim.config().turns_per_year());
     let world = sim.world_mut();
+    // Keep them at it: no need ever becomes urgent enough to re-decide.
+    world
+        .resource_mut::<societies::people::decide::ActionCatalog>()
+        .urgent = u16::MAX;
     let mut q = world.query::<(&Person, &mut Activity)>();
     for (person, mut activity) in q.iter_mut(world) {
         if person.home == city && person.age_years(turn, tpy) >= 12 {
@@ -158,6 +162,7 @@ fn farmers_fill_the_stores_at_harvest() {
     idle.step();
     farming.step();
     put_to_work(&mut farming, city, ActionKind::Farm);
+    put_to_work(&mut idle, city, ActionKind::Idle);
 
     // The crop grows in the fields; nothing reaches the stores yet.
     days(&mut farming, 20);
@@ -297,6 +302,9 @@ fn people_eat_when_there_is_food_and_go_hungry_when_there_is_none() {
     fed.step();
     starving.step();
     let city = CityId(0);
+    // Nobody works: what they eat comes from the stores alone.
+    put_to_work(&mut fed, city, ActionKind::Idle);
+    put_to_work(&mut starving, city, ActionKind::Idle);
     make_hungry(&mut fed, city);
     make_hungry(&mut starving, city);
     {
@@ -312,10 +320,18 @@ fn people_eat_when_there_is_food_and_go_hungry_when_there_is_none() {
     days(&mut fed, 1);
     days(&mut starving, 1);
 
+    // Eating clears the hunger; a night then adds a day's worth (needs).
     let fed_hunger = hunger(&mut fed, city);
-    assert!(fed_hunger.iter().all(|&h| h < 300), "{fed_hunger:?}");
+    assert!(fed_hunger.iter().all(|&h| h <= 300), "{fed_hunger:?}");
     let starving_hunger = hunger(&mut starving, city);
-    assert!(starving_hunger.iter().all(|&h| h >= 800));
+    assert!(
+        starving_hunger.iter().all(|&h| h >= 800),
+        "{:?}",
+        starving_hunger
+            .iter()
+            .filter(|&&h| h < 800)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(larder(&mut starving, city).ration, 0);
     assert_eq!(food(&mut starving, city), 0);
 
@@ -350,10 +366,12 @@ fn travellers_neither_work_nor_eat_at_home() {
             }
         }
     }
+    // Measure from now: on the first turn they may already have worked.
+    let produced = larder(&mut sim, city).produced_milli;
     days(&mut sim, 2);
     let l = larder(&mut sim, city);
     assert_eq!(l.last_day.workers, [0; 4]);
-    assert_eq!(l.produced_milli, 0);
+    assert_eq!(l.produced_milli, produced);
     let children = hunger(&mut sim, city).len() as u32 - adults(&mut sim, city);
     assert_eq!(l.residents, children);
 }
@@ -425,9 +443,12 @@ fn outlook_reports_land_and_food() {
     for c in sim.cities() {
         let o = outlook(&mut sim, c.id);
         let l = larder(&mut sim, c.id);
-        assert_eq!(
-            o.food_days as u64,
-            food(&mut sim, c.id) / u64::from(l.residents.max(1))
+        // Within a day: births and deaths come after the economy's step.
+        let expected = food(&mut sim, c.id) / u64::from(l.residents.max(1));
+        assert!(
+            (o.food_days as u64).abs_diff(expected) <= 1,
+            "{} vs {expected}",
+            o.food_days
         );
         assert!(o.food_days > 100, "{o:?}");
         assert!(o.free_land > 0, "{o:?}");

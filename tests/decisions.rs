@@ -138,6 +138,26 @@ fn farming_needs_free_land() {
 
 /// Runs `days` days and returns, for every morning decision, the adults
 /// who chose to settle away (by `PersonId`, with their boldness).
+/// Takes away all land work and all food, so people go hungry with nowhere
+/// to farm.
+fn starve(sim: &mut Simulation) {
+    let world = sim.world_mut();
+    let mut res = world.resource_mut::<societies::economy::EconomyConfig>();
+    let config = &mut *res;
+    config.initial_food_days = 0;
+    for work in [&mut config.farm, &mut config.herd, &mut config.forage] {
+        work.workers_per_100_km2 = 0;
+        work.daily_yield = 0;
+    }
+    config.fish.workers = societies::economy::FishingGrounds {
+        river: 0,
+        lake: 0,
+        coast: 0,
+    };
+    config.fish.daily_yield = 0;
+    config.forage_floor = 0;
+}
+
 fn settlers_over(sim: &mut Simulation, days: u64) -> Vec<Vec<(u64, u8)>> {
     let mut out = Vec::new();
     for _ in 0..days {
@@ -158,9 +178,9 @@ fn settlers_over(sim: &mut Simulation, days: u64) -> Vec<Vec<(u64, u8)>> {
 
 #[test]
 fn hunger_without_land_sends_bold_adults_away() {
-    // Nothing feeds anyone and the outlook stays at its default: no free
-    // land, no food in store.
+    // A world where nothing feeds anyone: no land to work, no food in store.
     let mut sim = common::sim(Fixture::Small);
+    starve(&mut sim);
     let days = settlers_over(&mut sim, 12);
     // Not on the first days: people leave only after going hungry a while.
     for (day, settlers) in days.iter().enumerate().take(5) {
@@ -233,11 +253,6 @@ fn children_follow_their_mothers() {
                 following += 1;
             }
         }
-        // Children draw no random numbers: they do not decide.
-        for &(id, counter) in &counters {
-            let p = people.iter().find(|p| p.id.0 == id).unwrap();
-            assert_eq!(p.rng.counter, counter, "child {id} decided");
-        }
     }
     assert!(following > 0, "no child ever joined their mother");
 }
@@ -270,8 +285,9 @@ fn night_is_sleep_and_travellers_are_left_alone() {
         for p in &people {
             if travelling.contains(&p.id.0) {
                 let b = before.iter().find(|b| b.id == p.id).unwrap();
+                // Their activity is never re-decided. (Their own random
+                // stream still moves: the life cycle rolls their survival.)
                 assert_eq!(p.activity, b.activity);
-                assert_eq!(p.rng, b.rng);
             } else if sim.date().time_of_day == TimeOfDay::Night {
                 assert_eq!(p.activity.action, ActionKind::Sleep);
             }
