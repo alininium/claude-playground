@@ -148,12 +148,16 @@ fn a_day_of_decisions_for_10000_people() {
     );
 }
 
-// Measured in a development container (release build): creation 2.1 s and
-// 47 s, one year 1.45 s, one large day 96 ms, loading 31 ms. Per-step speed
-// matters most, so those budgets are the tight ones.
-const BUDGET_CREATE_SMALL: u64 = 6_000;
-const BUDGET_CREATE_LARGE: u64 = 150_000;
-const BUDGET_YEAR_SMALL: u64 = 4_500;
+// Measured in a development container (release build, one test at a time,
+// cargo test --release --test performance -- --include-ignored
+// --test-threads=1): creation 7.5 s and 213 s, one year 5.0 s, one large
+// day under 300 ms, loading 31 ms. Creation grew from 2.1 s and 47 s with
+// the ice-sheet probe (three years of turn-by-turn weather before turn 0);
+// the year grew from 1.45 s with the people (about 3 500 on this map).
+// Per-step speed matters most, so those budgets are the tight ones.
+const BUDGET_CREATE_SMALL: u64 = 10_000;
+const BUDGET_CREATE_LARGE: u64 = 300_000;
+const BUDGET_YEAR_SMALL: u64 = 6_000;
 const BUDGET_DAY_LARGE: u64 = 300;
 const BUDGET_LOAD_SMALL: u64 = 300;
 /// The people's own budget is 10 ms a day; the small world's turns add a
