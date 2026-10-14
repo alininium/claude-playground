@@ -65,8 +65,11 @@ impl WorldSave {
         let mut out = Vec::new();
         out.extend_from_slice(MAGIC);
         out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+        // Serialized up front: bincode writes field by field, and feeding the
+        // encoder thousands of tiny writes is several times slower.
+        let data = bincode::serialize(self).map_err(io::Error::other)?;
         let mut encoder = DeflateEncoder::new(out, Compression::default());
-        bincode::serialize_into(&mut encoder, self).map_err(io::Error::other)?;
+        encoder.write_all(&data)?;
         encoder.finish()
     }
 

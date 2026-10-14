@@ -23,6 +23,21 @@ pub struct Weather {
     temperature: Vec<i16>,
     /// Precipitation multiplier, per mille.
     precipitation: Vec<u16>,
+    /// Noise grids of the last two epochs used. Each epoch's field is
+    /// blended over eight days (as the next epoch, then the current one), so
+    /// it is sampled once instead of every day. Not saved: recomputed on
+    /// demand, with identical values.
+    #[serde(skip)]
+    grids: Vec<EpochGrid>,
+}
+
+/// The (temperature, precipitation) noise of one weather epoch at the
+/// coarse grid points of a map `width` wide.
+#[derive(Debug, Clone)]
+struct EpochGrid {
+    epoch: u64,
+    width: i64,
+    values: Vec<(i64, i64)>,
 }
 
 impl Weather {
@@ -31,6 +46,7 @@ impl Weather {
             seed,
             temperature: vec![0; tiles],
             precipitation: vec![1000; tiles],
+            grids: Vec::new(),
         }
     }
 
@@ -49,50 +65,95 @@ impl Weather {
     /// feature) and interpolated bilinearly, which looks the same as sampling
     /// every tile and is much cheaper on large maps.
     pub fn update(&mut self, day: u64, width: u32, amplitude: impl Fn(usize) -> i16) {
+        let field = self.day_field(day, width);
+        let w = field.width as usize;
+        let rows = self
+            .temperature
+            .chunks_mut(w)
+            .zip(self.precipitation.chunks_mut(w));
+        for (y, (temperature, precipitation)) in rows.enumerate() {
+            let row = field.row(y);
+            for (x, (t, p)) in temperature.iter_mut().zip(precipitation).enumerate() {
+                (*t, *p) = field.sample(&row, x, amplitude(y * w + x));
+            }
+        }
+    }
+
+    /// The weather field of absolute day `day`, to sample single tiles
+    /// with: [`DayField::at`] gives exactly what [`Weather::update`] would
+    /// store for that tile, without touching the stored weather.
+    pub fn day_field(&mut self, day: u64, width: u32) -> DayField {
         let epoch = day / EPOCH_DAYS;
         let blend = ((day % EPOCH_DAYS) as i64 * ONE) / EPOCH_DAYS as i64;
-        let field = |epoch: u64, layer: u64| {
+        let w = i64::from(width.max(1));
+        let h = (self.temperature.len() as i64 / w).max(1);
+        let step = (w / 108).max(1);
+
+        let a = self.epoch_grid(epoch, w, h, None);
+        let b = self.epoch_grid(epoch + 1, w, h, Some(a));
+        let (a, b) = (&self.grids[a].values, &self.grids[b].values);
+        let grid = a
+            .iter()
+            .zip(b)
+            .map(|(&(t0, p0), &(t1, p1))| {
+                (t0 + (t1 - t0) * blend / ONE, p0 + (p1 - p0) * blend / ONE)
+            })
+            .collect();
+        // Grid column and offset toward the next column, for every x.
+        let columns = (0..w)
+            .map(|x| ((x / step) as usize, (x % step) * ONE / step))
+            .collect();
+        DayField {
+            grid,
+            grid_width: ((w + step - 1) / step + 1) as usize,
+            width: w,
+            step,
+            columns,
+        }
+    }
+
+    /// Index in `grids` of the noise grid of `epoch`, sampling it if needed
+    /// in place of the oldest grid other than `keep`.
+    fn epoch_grid(&mut self, epoch: u64, w: i64, h: i64, keep: Option<usize>) -> usize {
+        if let Some(i) = self
+            .grids
+            .iter()
+            .position(|g| g.epoch == epoch && g.width == w)
+        {
+            return i;
+        }
+        let field = |layer: u64| {
             Noise::new(splitmix(
                 self.seed ^ epoch.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ layer,
             ))
         };
-        let (t0, t1) = (field(epoch, 1), field(epoch + 1, 1));
-        let (p0, p1) = (field(epoch, 2), field(epoch + 1, 2));
-        let w = i64::from(width.max(1));
-        let h = (self.temperature.len() as i64 / w).max(1);
+        let (t, p) = (field(1), field(2));
         let step = (w / 108).max(1);
         let (gw, gh) = ((w + step - 1) / step + 1, (h + step - 1) / step + 1);
-
-        // Noise values (temperature, precipitation) at the grid points.
-        let mut grid = Vec::with_capacity((gw * gh) as usize);
+        let mut values = Vec::with_capacity((gw * gh) as usize);
         for gy in 0..gh {
             for gx in 0..gw {
                 // About 27 weather cells across the planet.
                 let fx = (2 * gx * step + 1) * ONE * 27 / (2 * w);
                 let fy = (2 * gy * step + 1) * ONE * 27 / (2 * w);
-                let sample = |a: &Noise, b: &Noise| {
-                    let (va, vb) = (a.fbm(fx, fy, 2), b.fbm(fx, fy, 2));
-                    va + (vb - va) * blend / ONE
-                };
-                grid.push((sample(&t0, &t1), sample(&p0, &p1)));
+                values.push((t.fbm(fx, fy, 2), p.fbm(fx, fy, 2)));
             }
         }
-
-        for i in 0..self.temperature.len() {
-            let (x, y) = (i as i64 % w, i as i64 / w);
-            let (gx, gy) = ((x / step) as usize, (y / step) as usize);
-            let (sx, sy) = ((x % step) * ONE / step, (y % step) * ONE / step);
-            let at = |dx: usize, dy: usize| grid[(gy + dy) * gw as usize + gx + dx];
-            let lerp2 = |k: fn((i64, i64)) -> i64| {
-                let top = k(at(0, 0)) + (k(at(1, 0)) - k(at(0, 0))) * sx / ONE;
-                let bottom = k(at(0, 1)) + (k(at(1, 1)) - k(at(0, 1))) * sx / ONE;
-                top + (bottom - top) * sy / ONE
+        let grid = EpochGrid {
+            epoch,
+            width: w,
+            values,
+        };
+        if self.grids.len() < 2 {
+            self.grids.push(grid);
+            self.grids.len() - 1
+        } else {
+            let replace = match keep {
+                Some(k) => 1 - k,
+                None => usize::from(self.grids[1].epoch < self.grids[0].epoch),
             };
-            // fbm values are typically ±0.3; scale so `amplitude` is typical.
-            let t = lerp2(|v| v.0) * 3 * i64::from(amplitude(i)) / ONE;
-            self.temperature[i] = t.clamp(-300, 300) as i16;
-            let p = 1000 + lerp2(|v| v.1) * 3 * 1000 / ONE * 2 / 5;
-            self.precipitation[i] = p.clamp(100, 2200) as u16;
+            self.grids[replace] = grid;
+            replace
         }
     }
 
@@ -100,6 +161,55 @@ impl Weather {
         for (&t, &p) in self.temperature.iter().zip(&self.precipitation) {
             write((t as u64) << 16 | u64::from(p));
         }
+    }
+}
+
+/// One day's weather noise, interpolated to tiles on demand.
+pub struct DayField {
+    /// Blended (temperature, precipitation) noise at the grid points.
+    grid: Vec<(i64, i64)>,
+    grid_width: usize,
+    width: i64,
+    step: i64,
+    columns: Vec<(usize, i64)>,
+}
+
+/// Grid row and offset toward the next row of one map row.
+struct FieldRow {
+    gy: usize,
+    sy: i64,
+}
+
+impl DayField {
+    /// The (temperature anomaly, precipitation factor) of tile `index`,
+    /// whose typical anomaly is `amplitude`.
+    pub fn at(&self, index: usize, amplitude: i16) -> (i16, u16) {
+        let w = self.width as usize;
+        self.sample(&self.row(index / w), index % w, amplitude)
+    }
+
+    fn row(&self, y: usize) -> FieldRow {
+        let y = y as i64;
+        FieldRow {
+            gy: (y / self.step) as usize,
+            sy: (y % self.step) * ONE / self.step,
+        }
+    }
+
+    fn sample(&self, row: &FieldRow, x: usize, amplitude: i16) -> (i16, u16) {
+        let (gx, sx) = self.columns[x];
+        let sy = row.sy;
+        let at = |dx: usize, dy: usize| self.grid[(row.gy + dy) * self.grid_width + gx + dx];
+        let (v00, v10, v01, v11) = (at(0, 0), at(1, 0), at(0, 1), at(1, 1));
+        let lerp2 = |k: fn((i64, i64)) -> i64| {
+            let top = k(v00) + (k(v10) - k(v00)) * sx / ONE;
+            let bottom = k(v01) + (k(v11) - k(v01)) * sx / ONE;
+            top + (bottom - top) * sy / ONE
+        };
+        // fbm values are typically ±0.3; scale so `amplitude` is typical.
+        let t = lerp2(|v| v.0) * 3 * i64::from(amplitude) / ONE;
+        let p = 1000 + lerp2(|v| v.1) * 3 * 1000 / ONE * 2 / 5;
+        (t.clamp(-300, 300) as i16, p.clamp(100, 2200) as u16)
     }
 }
 
