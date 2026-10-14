@@ -153,6 +153,7 @@ impl Simulation {
         let mut world = World::new();
         world.insert_resource(EventLog::default());
         people::install(&mut world);
+        world.init_resource::<journal::SocietyRecord>();
         for (volcano, position) in save.volcanoes {
             world.spawn((volcano, position));
         }
@@ -203,6 +204,7 @@ impl Simulation {
                 people::life::systems(),
                 people::status::systems(),
                 caravan::systems(),
+                journal::record_society,
                 people::census,
             )
                 .chain(),
@@ -223,7 +225,7 @@ impl Simulation {
             fertility: self.fertility().clone(),
             volcanism: self.volcanism().clone(),
             volcanoes,
-            journal: self.journal().clone(),
+            journal: self.journal().world_part(),
             rng: self.world.resource::<SimRng>().clone(),
             society_seed: self.world.resource::<SocietySeed>().0,
         }
@@ -272,7 +274,8 @@ impl Simulation {
         self.world.resource::<Fertility>()
     }
 
-    /// The climate journal: notable weather and volcanic events by severity.
+    /// The journal: notable weather, volcanic, famine and technology events
+    /// by severity.
     pub fn journal(&self) -> &Journal {
         self.world.resource::<Journal>()
     }
@@ -376,7 +379,7 @@ impl Simulation {
             h.write(&[b as u8]);
         }
         self.volcanism().digest(&mut |v| h.write_u64(v));
-        self.journal().digest(&mut |v| h.write_u64(v));
+        self.journal().digest(false, &mut |v| h.write_u64(v));
         for (v, p) in self.volcanoes() {
             h.write_u64(u64::from(v.id.0) << 32 | u64::from(p.x) << 16 | u64::from(p.y));
             h.write_u64(v.magma);
@@ -423,6 +426,9 @@ impl Simulation {
         for caravan in caravan::caravans(world) {
             h.write(format!("{caravan:?}").as_bytes());
         }
+        world
+            .resource::<Journal>()
+            .digest(true, &mut |v| h.write_u64(v));
     }
 
     /// Fingerprint of the cities alone.

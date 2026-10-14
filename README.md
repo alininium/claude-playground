@@ -17,7 +17,7 @@ future. It has:
   glaciers and polar caps
 - 16 climate-driven biomes and land fertility
 - volcanoes that erupt, cool the climate and bury land in ash
-- a climate journal of notable events
+- a journal of notable events: weather, eruptions, famines, technologies
 
 The world starts in 4500 BCE with 16 settlements, each of 10 people:
 
@@ -190,7 +190,7 @@ effects:
 Every eruption is logged with when, where, why (setting, dormancy) and its
 toll.
 
-## Climate journal (`src/journal.rs`)
+## Journal (`src/journal.rs`)
 
 A short record of what leaves a mark, graded **Minor, Moderate, Major,
 Severe, Cataclysmic**. It is written once per season, never per step. It
@@ -201,6 +201,12 @@ covers:
   into one entry
 - El Niño- and La Niña-like episodes and volcanic winters as they escalate
 - impactful eruptions
+- famines, and technologies a city gains (invents, if nobody knew it) or
+  loses when its last knowers die or leave
+
+A single city's famine or technology is at most Moderate: **Major, Severe and
+Cataclysmic are for what happens in several cities at once** (the same
+technology lost by half the cities is Cataclysmic).
 
 Over 1000 years it holds about 1.5 entries a year. Severe events come about
 once a generation, and Cataclysmic ones (VEI 7 eruptions, extreme El Niño

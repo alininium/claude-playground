@@ -152,7 +152,7 @@ T = annual mean + seasonal swing·cos(2π(t − solstice − lag)/year)
 | Established | **Volcanic arcs** form above subduction zones along continental margins (the Andes, Japan, Indonesia) and produce explosive eruptions. **Hotspots** (mantle plumes: Hawaii, Iceland, Yellowstone) are mostly effusive. The **Volcanic Explosivity Index** (Newhall & Self, 1982) sets erupted tephra volume at ≥ 0.01 km³ for VEI 3, rising tenfold per step to ≥ 100 km³ for VEI 7. Approximate global frequencies are a few VEI 3 a year, a VEI 4 every few to ten years, a VEI 5 every ~50 years, a VEI 6 every ~100-200 years and a VEI 7 about once per millennium. Large eruptions put **sulfate aerosols** into the stratosphere: Pinatubo (VEI 6, 1991) reached a global aerosol optical depth of about 0.15 and cooled the planet about 0.5 °C, and Tambora (VEI 7, 1815) caused the 1816 "year without a summer". Stratospheric aerosols wash out with an e-folding time of about a year. Tropical eruptions spread aerosols over both hemispheres, extratropical ones mostly over their own. Larger eruptions need larger magma chambers. |
 | Our own | **Placement:** arcs on land ≥ 1200 m within 4 tiles of the ocean, 10 per 10 000 tiles. Hotspots anywhere, 2 per 10 000 tiles, up to VEI 4. All at least 3 tiles apart. **Magma:** heavy-tailed recharge (log-uniform over three orders of magnitude), sharing the long-term planet-wide erupted volume implied by the eruption rates. Arcs start with up to 5000 years of stored magma, hotspots up to 300. **Eruptions:** each day, per VEI 3-7, a chance from the planet-wide rate (default per millennium: 2000, 150, 20, 8, 1). The volcano is drawn by stored magma among those with enough magma for that size; if none qualifies, nothing erupts. **Aerosols:** global optical depth 0.01, 0.05, 0.15, 0.5 for VEI 4-7, split per hemisphere (tropical within 20°: both get the full value; otherwise 170% / 30%). Cooling is 3 °C per unit optical depth, approached with a 60-day lag, and decays with a one-year e-folding time. **Ash:** radius 15, 50, 150, 400 and 1000 km for VEI 3-7. Fertility damage at the volcano is 20%, 50%, 80%, 90% and 95%, halving toward the edge, with an e-folding time of 250 days. **Casualties:** 2%, 10%, 30%, 60% and 90% of a city's population at the volcano, halving toward the edge of the ash radius. |
 
-## 13. Climate journal (`src/journal.rs`)
+## 13. Journal (`src/journal.rs`)
 
 Entirely **our own** reporting rules, built on the normals of §9. Written once
 per season. Regional weather is judged on a 16 × 8 grid of regions with at
@@ -173,6 +173,23 @@ volcanic winters are logged when they reach a new level, not every season.
 When more than four regions report the same kind of anomaly in one season,
 they are merged into one widespread entry (highest severity, worst region's
 value, number of regions, and the hemisphere if they share one).
+
+**Societies** (`record_society`, after the people modules, at the same
+season boundaries). A city's ration share is sampled every night after the
+evening meal, and its knowledge is compared with the previous season's.
+Severity follows the rule that **Major, Severe and Cataclysmic are for
+things that happen in several places at once**:
+
+| Happening | Minor | Moderate | Major | Severe | Cataclysmic |
+|---|---|---|---|---|---|
+| Famine in one city (share of the season's rations missing) | ≥ 10% | ≥ 40% | | | |
+| Technology gained or lost by one city | any | 10+ technologies build on it, or an invention (nobody knew it) | | | |
+| Famine, or the same technology gained or lost, in several cities in one season | | | 2+ cities | ¼ of cities (at least 3) | ½ of cities (at least 4) |
+
+A city that gains or loses more than four technologies on its own in one
+season gets one entry naming the most important. How much builds on a
+technology is the number of technologies that require it, directly or
+through others (villages 52, fire 41, pottery 39, cereals 26, writing 7).
 
 ## 14. Cities (`src/city.rs`)
 
